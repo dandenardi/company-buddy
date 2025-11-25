@@ -4,14 +4,19 @@ from pydantic import AnyHttpUrl, SecretStr, Field
 from pydantic_settings import BaseSettings
 from fastapi.security import OAuth2PasswordBearer
 
+
 class Settings(BaseSettings):
     project_name: str = "Company Buddy"
     api_v1_prefix: str = "/api/v1"
 
     backend_cors_origins: List[AnyHttpUrl] = []
 
-    # Banco (por enquanto pode deixar sqlite para dev, depois trocamos para Postgres)
-    database_url: str = "sqlite:///./company_buddy.db"
+    # Banco
+    # Agora usamos Postgres por padrão, mas pode ser sobrescrito via variável de ambiente DATABASE_URL
+    database_url: str = Field(
+        default="postgresql+psycopg2://companybuddy:companybuddy@localhost:5432/companybuddy",
+        env="DATABASE_URL",
+    )
 
     # Auth / JWT
     jwt_secret_key: SecretStr = SecretStr("change-me-in-.env")
@@ -30,7 +35,5 @@ class Settings(BaseSettings):
     google_client_secret: str = Field(default="", env="GOOGLE_CLIENT_SECRET")
     google_redirect_uri: str = Field(default="", env="GOOGLE_REDIRECT_URI")
 
+
 settings = Settings()
-
-
-

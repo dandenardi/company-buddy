@@ -1,17 +1,19 @@
+# app/infrastructure/db/session.py
 from typing import Generator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
 from app.core.config import settings
-from app.infrastructure.db.base import Base
 
-# Create the engine
+# Engine
 engine = create_engine(
     settings.database_url,
+    # Só precisa disso para SQLite, Postgres ignora
     connect_args={"check_same_thread": False}
     if settings.database_url.startswith("sqlite")
     else {},
+    pool_pre_ping=True,
 )
 
 # Session factory

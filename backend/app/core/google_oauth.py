@@ -18,5 +18,8 @@ async def get_google_user_info(request: Request):
     Handles Google OAuth callback exchange: code → tokens → user_info
     """
     token = await oauth.google.authorize_access_token(request)
-    user_info = await oauth.google.parse_id_token(request, token)
+    
+    # Fetch user info from Google's userinfo endpoint
+    # This avoids complexity with parsing id_token and handling nonces manually
+    user_info = await oauth.google.userinfo(token=token)
     return user_info

@@ -1,16 +1,25 @@
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.core.config import settings
 from app.api.v1.routes.health import health_router
 from app.api.v1.routes.auth import auth_router
-from app.infrastructure.db.base import Base
-from app.infrastructure.db.session import engine
+from app.infrastructure.db.init_db import init_database
 
 
 def create_app() -> FastAPI:
     application = FastAPI(
         title=settings.project_name,
+    )
+
+    application.add_middleware(
+        SessionMiddleware,
+        secret_key=str(settings.jwt_secret_key.get_secret_value()),
+        same_site="lax",
+        session_cookie="cb_session",
     )
 
     # CORS
@@ -22,13 +31,14 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Import models so SQLAlchemy knows about them
-    # (they just need to be imported, even if unused here)
-    import app.infrastructure.db.models.user_model  # noqa: F401
-    import app.infrastructure.db.models.tenant_model  # noqa: F401
+    @application.on_event("startup")
+    async def on_startup() -> None:
+        # Importa os models só para registrá-los no SQLAlchemy
+        import app.infrastructure.db.models.user_model      # noqa: F401
+        import app.infrastructure.db.models.tenant_model    # noqa: F401
+        import app.infrastructure.db.models.document_model  # noqa: F401
 
-    # Create tables (dev only – later we can move this to migrations)
-    Base.metadata.create_all(bind=engine)
+        init_database()
 
     # Routers
     application.include_router(

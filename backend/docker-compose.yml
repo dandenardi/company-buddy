@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: companybuddy_db
+    restart: always
+    environment:
+      POSTGRES_USER: companybuddy
+      POSTGRES_PASSWORD: companybuddy
+      POSTGRES_DB: companybuddy
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+volumes:
+  db_data:
