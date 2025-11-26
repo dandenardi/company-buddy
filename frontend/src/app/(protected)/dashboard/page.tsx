@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiGetMe } from "@/lib/api";
 
+const ACCESS_TOKEN_KEY = "access_token";
+
 interface TenantInfo {
   id: number;
   name: string;
@@ -25,7 +27,7 @@ export default function AppDashboardPage() {
 
   useEffect(() => {
     
-    const accessToken = localStorage.getItem("access_token");
+    const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
     
     if (!accessToken) {
       router.replace("/login");
@@ -41,7 +43,7 @@ export default function AppDashboardPage() {
       } catch (error: any) {
         setErrorMessage(error.message ?? "Erro ao carregar dados.");
         // token inválido/expirado → limpa e manda pro login
-        localStorage.removeItem("access_token");
+        localStorage.removeItem(ACCESS_TOKEN_KEY);
         router.replace("/login");
       } finally {
         setIsLoading(false);
@@ -62,31 +64,14 @@ export default function AppDashboardPage() {
   if (!me) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-50">
-        <p>Não foi possível carregar seus dados. Tente entrar novamente.</p>
+       {errorMessage ?? "Nenhum usuário carregado."}
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
-      <header className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">CompanyBuddy</h1>
-          <p className="text-xs text-slate-400">
-            Olá, {me.full_name || me.email} — Tenant: {me.tenant.name}
-          </p>
-        </div>
-
-        <button
-          onClick={() => {
-            localStorage.removeItem("access_token");
-            router.replace("/login");
-          }}
-          className="text-sm text-slate-300 hover:text-white"
-        >
-          Sair
-        </button>
-      </header>
+      
 
       <main className="p-6 grid gap-6 lg:grid-cols-3">
         <section className="lg:col-span-2 bg-slate-900 rounded-xl p-4">

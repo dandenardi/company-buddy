@@ -1,33 +1,45 @@
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { CurrentUserProvider, useCurrentUser } from "@/hooks/use-current-user";
+import { Sidebar } from '@/components/layout/Sidebar';
+import { Header } from '@/components/layout/Header';
 
-export default function ProtectedLayout({
-  children,
-}: {
-  children: ReactNode;
-}) {
+function ProtectedContent({ children }: { children: ReactNode }) {
+  const { user, isLoading } = useCurrentUser();
   const router = useRouter();
-  const [isChecking, setIsChecking] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("access_token");
-
-    if (!token) {
-      router.replace("/login");
-    } else {
-      setIsChecking(false);
+    if (!isLoading && !user) {
+      router.push("/login");
     }
-  }, [router]);
+  }, [isLoading, user, router]);
 
-  if (isChecking) {
+  if (isLoading || (!user && typeof window !== "undefined")) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-50">
-        <p>Carregando seu ambiente...</p>
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-sm text-neutral-500">Carregando painel...</p>
       </div>
     );
   }
 
-  return <div className="min-h-screen flex flex-col">{children}</div>;
+  return (
+   <div className="flex min-h-screen bg-slate-950 text-slate-50">
+      <Sidebar />
+
+      <div className="flex min-h-screen flex-1 flex-col bg-slate-50 text-slate-900">
+        <Header />
+        <main className="flex-1 p-6">{children}</main>
+      </div>
+    </div>
+    );
+}
+
+export default function ProtectedLayout({ children }: { children: ReactNode }) {
+  return (
+    <CurrentUserProvider>
+      <ProtectedContent>{children}</ProtectedContent>
+    </CurrentUserProvider>
+  );
 }

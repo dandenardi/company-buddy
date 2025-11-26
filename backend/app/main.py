@@ -1,13 +1,15 @@
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from starlette.middleware.sessions import SessionMiddleware
+
+from sqlalchemy import text  # 👈 novo
+from app.infrastructure.db.session import SessionLocal  # 👈 novo (ajusta se o path for outro)
 
 from app.core.config import settings
 from app.api.v1.routes.health import health_router
 from app.api.v1.routes.auth import auth_router
 from app.infrastructure.db.init_db import init_database
+from app.api.v1.routes.documents import router as documents_router
 
 
 def create_app() -> FastAPI:
@@ -38,7 +40,10 @@ def create_app() -> FastAPI:
         import app.infrastructure.db.models.tenant_model    # noqa: F401
         import app.infrastructure.db.models.document_model  # noqa: F401
 
+        # Cria tabelas básicas (se ainda não existirem)
         init_database()
+
+       
 
     # Routers
     application.include_router(
@@ -51,6 +56,12 @@ def create_app() -> FastAPI:
         auth_router,
         prefix=settings.api_v1_prefix + "/auth",
         tags=["auth"],
+    )
+
+    application.include_router(
+        documents_router,
+        prefix=settings.api_v1_prefix + "/documents",
+        tags=["documents"],
     )
 
     return application

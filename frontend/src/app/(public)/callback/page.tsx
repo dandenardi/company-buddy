@@ -9,7 +9,7 @@ export default function AuthCallbackPage() {
 
   useEffect(() => {
     const token = searchParams.get("token");
-    console.log(token);
+    
     if (token) {
       localStorage.setItem("access_token", token);
       router.replace("/dashboard"); // manda pro dashboard

@@ -23,3 +23,6 @@ class UserModel(Base):
 
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
     tenant = relationship("TenantModel", backref="users")
+
+    documents = relationship("DocumentModel", back_populates="owner")
+    
