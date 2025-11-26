@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     google_client_id: str = Field(default="", env="GOOGLE_CLIENT_ID")
     google_client_secret: str = Field(default="", env="GOOGLE_CLIENT_SECRET")
     google_redirect_uri: str = Field(default="", env="GOOGLE_REDIRECT_URI")
+    google_api_key: str | None = Field(default=None, env="GOOGLE_API_KEY")
+   
 
+    qdrant_url: AnyHttpUrl
+    qdrant_api_key: str | None = None
+    qdrant_collection_name: str = "company_buddy_chunks"
 
 settings = Settings()

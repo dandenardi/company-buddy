@@ -1,21 +1,28 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from sqlalchemy import text  # 👈 novo
-from app.infrastructure.db.session import SessionLocal  # 👈 novo (ajusta se o path for outro)
+from sqlalchemy import text
+from app.infrastructure.db.session import SessionLocal
+from app.infrastructure.db.init_db import init_database
 
 from app.core.config import settings
 from app.api.v1.routes.health import health_router
 from app.api.v1.routes.auth import auth_router
-from app.infrastructure.db.init_db import init_database
+from app.api.v1.routes.ask import router as ask_router
 from app.api.v1.routes.documents import router as documents_router
+from app.api.v1.routes.qdrant import router as qdrant_router
 
+
+logging.basicConfig(level=logging.INFO)
 
 def create_app() -> FastAPI:
     application = FastAPI(
         title=settings.project_name,
     )
+
+    
 
     application.add_middleware(
         SessionMiddleware,
@@ -43,8 +50,6 @@ def create_app() -> FastAPI:
         # Cria tabelas básicas (se ainda não existirem)
         init_database()
 
-       
-
     # Routers
     application.include_router(
         health_router,
@@ -62,6 +67,18 @@ def create_app() -> FastAPI:
         documents_router,
         prefix=settings.api_v1_prefix + "/documents",
         tags=["documents"],
+    )
+
+    application.include_router(
+        qdrant_router,
+        prefix=settings.api_v1_prefix + "/qdrant",
+        tags=["qdrant"],
+    )
+
+    application.include_router(
+        ask_router,
+        prefix=settings.api_v1_prefix + "/ask",
+        tags=["ask"],
     )
 
     return application
