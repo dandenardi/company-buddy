@@ -1,49 +1,122 @@
-from fastapi import APIRouter, Depends, HTTPException
+# app/api/v1/routes/ask.py
+
+from __future__ import annotations
+
+import logging
+from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, get_current_user
 from app.infrastructure.db.models.user_model import UserModel
 from app.services.qdrant_service import QdrantService
-from app.services.llm_service import LLMService
+from app.services.llm_service import LLMService, LLMServiceError, get_llm_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class AskRequest(BaseModel):
-    question: str
-    top_k: int = 5
+  question: str
+  top_k: int = 5
+
+
+class SourceChunk(BaseModel):
+  text: str
+  document_id: str | None = None
+  document_name: str | None = None
+  score: float | None = None
 
 
 class AskResponse(BaseModel):
-    answer: str
-    context: list[str]
+  answer: str
+  sources: List[SourceChunk]
 
 
 @router.post("", response_model=AskResponse)
 def ask(
-    payload: AskRequest,
-    db: Session = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
-):
-    tenant_id = current_user.tenant_id
-    question = payload.question
+  payload: AskRequest,
+  db: Session = Depends(get_db),
+  current_user: UserModel = Depends(get_current_user),
+  llm: LLMService = Depends(get_llm_service),
+) -> AskResponse:
+  tenant_id = current_user.tenant_id
+  question = payload.question
 
-    if not question or question.strip() == "":
-        raise HTTPException(status_code=400, detail="Pergunta inválida ou vazia.")
+  if not question or question.strip() == "":
+      raise HTTPException(
+          status_code=status.HTTP_400_BAD_REQUEST,
+          detail="Pergunta inválida ou vazia.",
+      )
 
-    # 1) Busca vetorial no Qdrant
-    qdrant = QdrantService()
-    results = qdrant.search(
-        tenant_id=tenant_id,
-        query_text=question,
-        limit=payload.top_k,
-    )
+  # 1) Busca vetorial no Qdrant
+  qdrant = QdrantService()
+  # Aqui assumo que o search retorna uma lista de dicts com pelo menos "text"
+  results = qdrant.search(
+      tenant_id=tenant_id,
+      query_text=question,
+      limit=payload.top_k,
+  )
 
-    context_chunks = [hit["text"] for hit in results]
+  context_chunks: List[str] = []
+  sources: List[SourceChunk] = []
 
-    # 2) Chamar LLM com contexto
-    llm = LLMService()
-    answer = llm.answer_with_context(question, context_chunks)
+  for hit in results:
+      # defensivo: tenta vários nomes de campos
+      text = (
+          hit.get("text")
+          or hit.get("chunk_text")
+          or hit.get("chunk")
+          or ""
+      )
+      if not text:
+          continue
 
-    return AskResponse(answer=answer, context=context_chunks)
+      context_chunks.append(text)
+
+      sources.append(
+          SourceChunk(
+              text=text,
+              document_id=str(
+                  hit.get("document_id")
+                  or hit.get("doc_id")
+                  or hit.get("documentId")
+                  or ""
+              )
+              or None,
+              document_name=(
+                  hit.get("document_name")
+                  or hit.get("file_name")
+                  or hit.get("filename")
+              ),
+              score=hit.get("score"),
+          )
+      )
+
+  if not context_chunks:
+      # Não achou nada na base – ainda assim chamamos o LLM com "nenhum contexto"
+      logger.info("Nenhum chunk encontrado no Qdrant para tenant=%s", tenant_id)
+
+  # 2) Chama o LLM com tratamento de erro
+  try:
+      answer = llm.answer_with_context(question, context_chunks)
+  except LLMServiceError as error:
+      # Erro esperado do LLM: retornamos 502 pro front com mensagem amigável
+      raise HTTPException(
+          status_code=status.HTTP_502_BAD_GATEWAY,
+          detail=str(error),
+      ) from error
+  except Exception as error:  # noqa: BLE001
+      # Erro inesperado mesmo
+      logger.exception("Erro inesperado ao processar /ask: %s", error)
+      raise HTTPException(
+          status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+          detail="Erro inesperado ao processar sua pergunta.",
+      ) from error
+
+  return AskResponse(
+      answer=answer,
+      sources=sources,
+  )

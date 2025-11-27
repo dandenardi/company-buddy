@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, BackgroundTasks
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List
 import os
 import uuid
+import logging
+from pathlib import Path
 
 from app.core.deps import get_db, get_current_user
 from app.infrastructure.db.models.document_model import DocumentModel, DocumentStatus
@@ -13,6 +16,8 @@ from app.services.qdrant_service import QdrantService
 
 UPLOAD_ROOT_DIR = "uploaded_files"
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["documents"])
 
 
@@ -21,12 +26,15 @@ def list_documents(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
+    logger.info(f"Listing documents for user_id={current_user.id} email={current_user.email} tenant_id={current_user.tenant_id}")
     query = (
         db.query(DocumentModel)
         .filter(DocumentModel.tenant_id == current_user.tenant_id)
         .order_by(DocumentModel.created_at.desc())
     )
-    return query.all()
+    results = query.all()
+    logger.info(f"Found {len(results)} documents for tenant_id={current_user.tenant_id}")
+    return results
 
 
 @router.post("/upload", response_model=DocumentBase, status_code=status.HTTP_201_CREATED)
@@ -60,6 +68,7 @@ def upload_document(
         owner_id=current_user.id,
         original_filename=file.filename or unique_name,
         stored_filename=stored_path,
+        stored_path=stored_path,
         content_type=file.content_type,
         status=DocumentStatus.PROCESSING,  # agora começa como PROCESSING
     )
@@ -104,6 +113,47 @@ def retry_document_ingestion(
     background_tasks.add_task(run_document_ingestion, document.id)
 
     return {"detail": "Ingestion requeued."}
+
+@router.get("/{document_id}/download")
+def download_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """
+    Faz o download do arquivo original do documento,
+    garantindo que pertence ao tenant do usuário atual.
+    """
+    document: DocumentModel | None = (
+        db.query(DocumentModel)
+        .filter(
+            DocumentModel.id == document_id,
+            DocumentModel.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Documento não encontrado.",
+        )
+
+    file_path = document.stored_path  # ou document.file_path / o campo que você usa
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Arquivo do documento não foi encontrado no servidor.",
+        )
+
+    media_type = document.content_type or "application/octet-stream"
+    download_name = document.original_filename or Path(file_path).name
+
+    return FileResponse(
+        path=file_path,
+        media_type=media_type,
+        filename=download_name,
+    )
 
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_document(

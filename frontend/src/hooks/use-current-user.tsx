@@ -8,8 +8,7 @@ import {
   ReactNode,
 } from "react";
 import { apiGetMe } from "@/lib/api";
-
-const ACCESS_TOKEN_KEY = "access_token"; 
+import { getAccessToken } from "@/lib/auth";
 
 export interface TenantInfo {
   id: string;
@@ -44,7 +43,7 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function loadCurrentUser() {
       try {
-        const accessTokenFromStorage = localStorage.getItem(ACCESS_TOKEN_KEY);
+        const accessTokenFromStorage = getAccessToken();
 
         if (!accessTokenFromStorage) {
           setUser(null);

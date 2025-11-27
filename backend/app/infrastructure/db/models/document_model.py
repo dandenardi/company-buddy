@@ -21,6 +21,7 @@ class DocumentModel(Base):
 
     original_filename = Column(String, nullable=False)
     stored_filename = Column(String, nullable=False)
+    stored_path = Column(String, nullable=False)
     content_type = Column(String, nullable=False)
     status = Column(Enum(DocumentStatus), default=DocumentStatus.UPLOADED, nullable=False)
 

@@ -1,6 +1,5 @@
-import { API_URL } from "./api";
-
-const ACCESS_TOKEN_KEY = "access_token"; // mesma chave usada no login/callback
+import { API_URL, handleJsonResponse } from "./api";
+import { ACCESS_TOKEN_KEY } from "./auth";
 
 export interface DocumentItem {
   id: number;
@@ -11,9 +10,10 @@ export interface DocumentItem {
 }
 
 function getAuthHeaders(): Record<string, string> {
-  const token = typeof window !== "undefined"
-    ? localStorage.getItem(ACCESS_TOKEN_KEY)
-    : null;
+  const token =
+    typeof window !== "undefined"
+      ? localStorage.getItem(ACCESS_TOKEN_KEY)
+      : null;
 
   return token
     ? {
@@ -30,11 +30,7 @@ export async function apiListDocuments(): Promise<DocumentItem[]> {
     },
   });
 
-  if (!res.ok) {
-    throw new Error("Erro ao buscar documentos.");
-  }
-
-  return res.json();
+  return handleJsonResponse(res);
 }
 
 export async function apiUploadDocument(file: File): Promise<DocumentItem> {
@@ -52,7 +48,7 @@ export async function apiUploadDocument(file: File): Promise<DocumentItem> {
   });
 
   if (!res.ok) {
-    let message = "Erro ao enviar documento.";
+    let message = "Error uploading document.";
     try {
       const data = await res.json();
       if (data?.detail) message = data.detail;
@@ -63,4 +59,49 @@ export async function apiUploadDocument(file: File): Promise<DocumentItem> {
   }
 
   return res.json();
+}
+
+export async function apiDeleteDocument(id: number): Promise<void> {
+  const headers: HeadersInit = {
+    ...getAuthHeaders(),
+  };
+
+  const res = await fetch(`${API_URL}/documents/${id}`, {
+    method: "DELETE",
+    headers,
+  });
+
+  if (!res.ok) {
+    let message = "Error deleting document.";
+    try {
+      const data = await res.json();
+      if (data?.detail) message = data.detail;
+    } catch {
+      // ignore
+    }
+    throw new Error(message);
+  }
+}
+
+export async function apiRetryDocument(id: number): Promise<void> {
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+    ...getAuthHeaders(),
+  };
+
+  const res = await fetch(`${API_URL}/documents/${id}/retry`, {
+    method: "POST",
+    headers,
+  });
+
+  if (!res.ok) {
+    let message = "Error requeuing ingestion.";
+    try {
+      const data = await res.json();
+      if (data?.detail) message = data.detail;
+    } catch {
+      // ignore
+    }
+    throw new Error(message);
+  }
 }

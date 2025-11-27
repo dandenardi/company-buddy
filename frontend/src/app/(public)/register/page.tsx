@@ -25,7 +25,7 @@ export default function RegisterPage() {
 
       // backend retorna LoginResponse (access_token)
       localStorage.setItem("access_token", data.access_token);
-      router.replace("/app");
+      router.replace("/dashboard");
     } catch (error: any) {
       setErrorMessage(error.message ?? "Erro inesperado ao criar conta.");
     } finally {

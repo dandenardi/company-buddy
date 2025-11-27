@@ -17,6 +17,68 @@ from app.api.v1.routes.qdrant import router as qdrant_router
 
 logging.basicConfig(level=logging.INFO)
 
+def run_startup_migrations() -> None:
+    """
+    Pequenas migrations automáticas na inicialização.
+
+    IMPORTANTE: isso é um quebra-galho pro MVP.
+    Para algo mais sério, o ideal é usar Alembic.
+    """
+    from app.infrastructure.db.models.document_model import DocumentModel  # noqa: F401
+
+    logging.info("Rodando migrations simples de startup...")
+    database_session = SessionLocal()
+
+    try:
+        # Exemplo: adicionar coluna stored_path
+        database_session.execute(
+            text(
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS stored_path VARCHAR(512);
+                """
+            )
+        )
+        
+        # Backfill stored_path for existing records
+        database_session.execute(
+            text(
+                """
+                UPDATE documents
+                SET stored_path = stored_filename
+                WHERE stored_path IS NULL;
+                """
+            )
+        )
+
+        # Exemplo: adicionar coluna original_filename
+        database_session.execute(
+            text(
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS original_filename VARCHAR(255);
+                """
+            )
+        )
+
+        # Exemplo: adicionar coluna mime_type
+        database_session.execute(
+            text(
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS mime_type VARCHAR(255);
+                """
+            )
+        )
+
+        database_session.commit()
+        logging.info("Migrations simples finalizadas com sucesso.")
+    except Exception as error:  # noqa: BLE001
+        logging.exception("Erro ao rodar migrations simples: %s", error)
+        database_session.rollback()
+    finally:
+        database_session.close()
+
 def create_app() -> FastAPI:
     application = FastAPI(
         title=settings.project_name,
@@ -49,6 +111,7 @@ def create_app() -> FastAPI:
 
         # Cria tabelas básicas (se ainda não existirem)
         init_database()
+        run_startup_migrations()
 
     # Routers
     application.include_router(

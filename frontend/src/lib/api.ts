@@ -1,16 +1,19 @@
-// frontend/lib/api.ts
+import { clearSession, redirectToLogin } from "./auth";
+
 export const API_URL = "http://localhost:8000/api/v1";
 
-async function handleJsonResponse(res: Response) {
+export async function handleJsonResponse(res: Response) {
   if (!res.ok) {
+    if (res.status === 401) {
+      clearSession();
+      redirectToLogin();
+    }
     try {
       const data = await res.json();
       if (data?.detail) {
         throw new Error(data.detail);
       }
-    } catch {
-      
-    }
+    } catch {}
     throw new Error("Error while communicating with the API.");
   }
 
@@ -33,7 +36,7 @@ export async function apiRegister(
   tenantName: string,
   fullName: string | null,
   email: string,
-  password: string
+  password: string,
 ) {
   const res = await fetch(`${API_URL}/auth/register`, {
     method: "POST",
