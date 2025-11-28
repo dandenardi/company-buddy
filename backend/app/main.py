@@ -13,7 +13,7 @@ from app.api.v1.routes.auth import auth_router
 from app.api.v1.routes.ask import router as ask_router
 from app.api.v1.routes.documents import router as documents_router
 from app.api.v1.routes.qdrant import router as qdrant_router
-
+from app.api.v1.routes.tenants import router as tenants_router
 
 logging.basicConfig(level=logging.INFO)
 
@@ -71,6 +71,15 @@ def run_startup_migrations() -> None:
             )
         )
 
+        database_session.execute(
+            text(
+                """
+                ALTER TABLE tenants
+                ADD COLUMN IF NOT EXISTS custom_prompt TEXT;
+                """
+            )
+        )
+
         database_session.commit()
         logging.info("Migrations simples finalizadas com sucesso.")
     except Exception as error:  # noqa: BLE001
@@ -109,6 +118,20 @@ def create_app() -> FastAPI:
         import app.infrastructure.db.models.tenant_model    # noqa: F401
         import app.infrastructure.db.models.document_model  # noqa: F401
 
+        # Check database connection before running migrations
+        try:
+            logging.info("Verificando conexão com o banco de dados...")
+            db = SessionLocal()
+            db.execute(text("SELECT 1"))
+            db.close()
+            logging.info("Conexão com o banco de dados estabelecida com sucesso.")
+        except Exception as e:
+            logging.error(f"Não foi possível conectar ao banco de dados: {e}")
+            logging.error("Verifique se o Docker está rodando e se o serviço do banco de dados está acessível.")
+            # We might want to stop startup here or just let it fail later, 
+            # but logging it clearly helps the user know WHY it's hanging/failing.
+            # For now, we'll let it proceed but the logs will be clear.
+
         # Cria tabelas básicas (se ainda não existirem)
         init_database()
         run_startup_migrations()
@@ -142,6 +165,12 @@ def create_app() -> FastAPI:
         ask_router,
         prefix=settings.api_v1_prefix + "/ask",
         tags=["ask"],
+    )
+
+    application.include_router(
+        tenants_router,
+        prefix=settings.api_v1_prefix + "/tenants",
+        tags=["tenants"],
     )
 
     return application

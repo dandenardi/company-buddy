@@ -38,19 +38,23 @@ class LLMService:
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel(model_name)
 
-    def answer_with_context(self, question: str, context_chunks: Sequence[str]) -> str:
+    def answer_with_context(self, question: str, context_chunks: Sequence[str], system_prompt: Optional[str] = None,) -> str:
         """
         Monta o prompt com contexto e retorna a resposta em texto.
         Levanta LLMServiceError se não conseguir produzir uma resposta útil.
         """
         context_text = "\n\n".join(context_chunks) if context_chunks else "Nenhum contexto foi encontrado."
 
-        prompt = (
+        base_prompt = system_prompt or (
             "Você é um assistente interno de uma empresa. "
             "Responda sempre em português brasileiro, de forma clara e objetiva, "
             "usando apenas as informações fornecidas no contexto. "
             "Se não encontrar a resposta no contexto, diga que não sabe e sugira "
-            "que o usuário adicione documentos relacionados.\n\n"
+            "que o usuário adicione documentos relacionados."
+        )   
+
+        prompt = (
+            f"{base_prompt}\n\n"
             f"Contexto:\n{context_text}\n\n"
             f"Pergunta do usuário:\n{question}\n\n"
             "Resposta:"
