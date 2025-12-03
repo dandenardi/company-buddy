@@ -133,6 +133,10 @@ def run_document_ingestion(document_id: int) -> None:
                 detail=f"Tipo de arquivo não suportado para ingestão: {document.content_type}",
             )
 
+        if not raw_text or not raw_text.strip():
+            logger.warning(f"[INGESTION] Texto extraído vazio ou apenas whitespace. Tamanho={len(raw_text)}")
+            raise RuntimeError("O arquivo não contém texto extraível (pode ser uma imagem ou estar vazio).")
+
         logger.info(f"[INGESTION] Texto extraído. Tamanho (chars)={len(raw_text)}")
 
         # 2) chunkar

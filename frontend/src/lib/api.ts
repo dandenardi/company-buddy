@@ -78,3 +78,15 @@ export async function apiGetMe(accessToken: string) {
 
   return res.json();
 }
+
+export async function apiGetDocuments(accessToken: string) {
+  const res = await fetch(`${API_URL}/documents`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  return handleJsonResponse(res);
+}

@@ -34,8 +34,8 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="w-full max-w-md bg-white p-8 rounded-xl shadow">
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="w-full max-w-md p-8 rounded-xl shadow">
         <h1 className="text-2xl font-semibold mb-6 text-center">
           Criar conta • CompanyBuddy
         </h1>

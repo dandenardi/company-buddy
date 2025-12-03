@@ -36,8 +36,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="w-full max-w-md bg-white p-8 rounded-xl shadow">
+    <div className="min-h-screen flex items-center justify-center ">
+      <div className="w-full max-w-md p-8 rounded-xl shadow">
         <h1 className="text-2xl font-semibold mb-6 text-center">
           CompanyBuddy Login
         </h1>
@@ -82,6 +82,13 @@ export default function LoginPage() {
           >
             Continuar com Google
           </button>
+
+          <div className="mt-4 text-center text-sm">
+            Ainda não tem conta?{" "}
+            <a href="/register" className="text-blue-600 underline">
+              Cadastre-se
+            </a>
+          </div>
         </div>
       </div>
     </div>

@@ -3,12 +3,20 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCurrentUser } from "@/hooks/use-current-user";
+import {
+  LayoutDashboard,
+  FileText,
+  MessageSquare,
+  Settings,
+  LogOut,
+} from "lucide-react";
+import { logout } from "@/lib/auth";
 
 const navigationItems = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/documents", label: "Meus Documentos" },
-  { href: "/chat", label: "Chat Interno" },
-  { href: "/settings", label: "Configurações" },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/documents", label: "Meus Documentos", icon: FileText },
+  { href: "/chat", label: "Chat Interno", icon: MessageSquare },
+  { href: "/settings", label: "Configurações", icon: Settings },
 ];
 
 export function Sidebar() {
@@ -26,18 +34,18 @@ export function Sidebar() {
     .toUpperCase();
 
   return (
-    <aside className="flex h-screen w-64 flex-col border-r border-slate-800 bg-slate-950 text-slate-50">
-      {/* Topo colorido estilo Slack */}
-      <div className="border-b border-slate-800 bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-white/15 text-sm font-semibold">
-            {userInitials}
+    <aside className="flex h-screen w-72 flex-col border-r border-border bg-card text-card-foreground">
+      {/* Header do Sidebar */}
+      <div className="p-6">
+        <div className="flex items-center gap-3 rounded-lg bg-primary/10 p-3 text-primary">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold shadow-sm">
+            CB
           </div>
-          <div className="flex flex-col">
-            <span className="text-xs uppercase tracking-wide text-white/70">
+          <div className="flex flex-col overflow-hidden">
+            <span className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
               Company Buddy
             </span>
-            <span className="truncate text-sm font-semibold text-white">
+            <span className="truncate text-base font-semibold">
               {tenantName}
             </span>
           </div>
@@ -45,24 +53,28 @@ export function Sidebar() {
       </div>
 
       {/* Navegação principal */}
-      <nav className="flex-1 space-y-1 p-3">
+      <nav className="flex-1 space-y-1 px-4">
         {navigationItems.map((item) => {
           const isActive =
             pathname === item.href ||
             (item.href !== "/dashboard" && pathname.startsWith(item.href));
+
+          const Icon = item.icon;
 
           return (
             <Link
               key={item.href}
               href={item.href}
               className={[
-                "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+                "group flex items-center gap-3 rounded-md px-3 py-2.5 text-base font-medium transition-all duration-200",
                 isActive
-                  ? "bg-slate-800 text-slate-50"
-                  : "text-slate-300 hover:bg-slate-900 hover:text-slate-50",
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
               ].join(" ")}
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              <Icon
+                className={`h-5 w-5 ${isActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-accent-foreground"}`}
+              />
               <span>{item.label}</span>
             </Link>
           );
@@ -70,16 +82,16 @@ export function Sidebar() {
       </nav>
 
       {/* Rodapé com usuário */}
-      <div className="border-t border-slate-800 p-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 text-xs font-medium">
+      <div className="border-t border-border p-4">
+        <div className="flex items-center gap-3 rounded-lg bg-accent/50 p-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary ring-2 ring-background">
             {userInitials}
           </div>
-          <div className="min-w-0">
-            <p className="truncate text-xs font-medium text-slate-100">
-              {user?.full_name ?? user?.email ?? "Usuário"}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-medium text-foreground">
+              {user?.full_name ?? user?.email?.split("@")[0] ?? "Usuário"}
             </p>
-            <p className="truncate text-[11px] text-slate-400">
+            <p className="truncate text-sm text-muted-foreground">
               {user?.email ?? "sem-email@companybuddy.ai"}
             </p>
           </div>

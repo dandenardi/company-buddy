@@ -9,4 +9,5 @@ class TenantModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     slug = Column(String(255), nullable=False, unique=True, index=True)
+    custom_prompt = Column(String, nullable=True)
     documents = relationship("DocumentModel", back_populates="tenant")
