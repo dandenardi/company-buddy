@@ -58,6 +58,7 @@ class QdrantService:
         document_id: int,
         chunks: List[str],
         embeddings: List[List[float]],
+        document_metadata: Dict[str, Any] | None = None,
     ) -> None:
         if not chunks or not embeddings:
             return
@@ -65,6 +66,8 @@ class QdrantService:
         if len(chunks) != len(embeddings):
             raise ValueError("Quantity of chunks and embeddings do not match.")
 
+        metadata = document_metadata or {}
+        
         points: List[qmodels.PointStruct] = []
         for idx, (text, vector) in enumerate(zip(chunks, embeddings)):
             point_id = str(uuid4())
@@ -73,6 +76,13 @@ class QdrantService:
                 "document_id": document_id,
                 "chunk_index": idx,
                 "text": text,
+                # Rich metadata for filtering and observability
+                "document_name": metadata.get("filename"),
+                "category": metadata.get("category"),
+                "content_type": metadata.get("content_type"),
+                "upload_date": metadata.get("upload_date"),
+                "language": metadata.get("language", "pt-BR"),
+                "page_number": metadata.get("page_number"),
             }
             points.append(
                 qmodels.PointStruct(
@@ -120,7 +130,9 @@ class QdrantService:
         hits: List[Dict[str, Any]] = []
         for scored_point in result.points:
             if scored_point.payload:
-                hits.append(scored_point.payload)
+                hit = scored_point.payload.copy()
+                hit["score"] = scored_point.score  # Include similarity score for observability
+                hits.append(hit)
 
         return hits
 

@@ -156,11 +156,22 @@ def run_document_ingestion(document_id: int) -> None:
         # 4) Qdrant
         logger.info("[INGESTION] Enviando chunks para Qdrant...")
         qdrant_service = QdrantService()
+        
+        # Prepare metadata for Qdrant
+        document_metadata = {
+            "filename": document.original_filename,
+            "category": getattr(document, "category", None),
+            "content_type": document.content_type,
+            "upload_date": document.created_at.isoformat() if document.created_at else None,
+            "language": getattr(document, "language", "pt-BR"),
+        }
+        
         qdrant_service.upsert_chunks(
             tenant_id=document.tenant_id,
             document_id=document.id,
             chunks=chunks,
             embeddings=embeddings,
+            document_metadata=document_metadata,
         )
         logger.info("[INGESTION] Upsert no Qdrant concluído.")
 

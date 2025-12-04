@@ -14,6 +14,7 @@ from app.api.v1.routes.ask import router as ask_router
 from app.api.v1.routes.documents import router as documents_router
 from app.api.v1.routes.qdrant import router as qdrant_router
 from app.api.v1.routes.tenants import router as tenants_router
+from app.api.v1.routes.feedback import router as feedback_router
 
 logging.basicConfig(level=logging.INFO)
 
@@ -117,6 +118,8 @@ def create_app() -> FastAPI:
         import app.infrastructure.db.models.user_model      # noqa: F401
         import app.infrastructure.db.models.tenant_model    # noqa: F401
         import app.infrastructure.db.models.document_model  # noqa: F401
+        import app.infrastructure.db.models.feedback_model  # noqa: F401
+        import app.infrastructure.db.models.query_log_model # noqa: F401
 
         # Check database connection before running migrations
         try:
@@ -171,6 +174,12 @@ def create_app() -> FastAPI:
         tenants_router,
         prefix=settings.api_v1_prefix + "/tenants",
         tags=["tenants"],
+    )
+
+    application.include_router(
+        feedback_router,
+        prefix=settings.api_v1_prefix + "/feedback",
+        tags=["feedback"],
     )
 
     return application

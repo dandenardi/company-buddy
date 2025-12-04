@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_current_user
 from app.infrastructure.db.models.user_model import UserModel
 from app.infrastructure.db.models.tenant_model import TenantModel
+from app.infrastructure.db.models.query_log_model import QueryLogModel
 from app.services.qdrant_service import QdrantService
 from app.services.llm_service import LLMService, LLMServiceError, get_llm_service
 
@@ -43,6 +45,9 @@ def ask(
   current_user: UserModel = Depends(get_current_user),
   llm: LLMService = Depends(get_llm_service),
 ) -> AskResponse:
+  # Start timing for observability
+  start_time = time.time()
+  
   tenant_id = current_user.tenant_id
   question = payload.question
 
@@ -129,6 +134,34 @@ def ask(
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
       detail="Erro inesperado ao processar sua pergunta.",
     ) from error
+
+  # 3) Log query for observability
+  response_time_ms = int((time.time() - start_time) * 1000)
+  
+  # Calculate score statistics
+  scores = [s.score for s in sources if s.score is not None]
+  avg_score = sum(scores) / len(scores) if scores else None
+  min_score = min(scores) if scores else None
+  max_score = max(scores) if scores else None
+  
+  query_log = QueryLogModel(
+    tenant_id=tenant_id,
+    user_id=current_user.id,
+    question=question,
+    chunks_retrieved=len(results),
+    chunks_used=[s.document_id for s in sources if s.document_id],
+    avg_score=avg_score,
+    min_score=min_score,
+    max_score=max_score,
+    response_time_ms=response_time_ms,
+  )
+  db.add(query_log)
+  db.commit()
+  
+  logger.info(
+    f"[ASK] tenant={tenant_id} chunks={len(results)} "
+    f"avg_score={avg_score:.3f if avg_score else 0} time={response_time_ms}ms"
+  )
 
   return AskResponse(
     answer=answer,
