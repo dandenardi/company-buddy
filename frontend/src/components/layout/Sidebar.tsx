@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Settings,
   LogOut,
+  BarChart,
 } from "lucide-react";
 import { logout } from "@/lib/auth";
 
@@ -16,6 +17,7 @@ const navigationItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/documents", label: "Meus Documentos", icon: FileText },
   { href: "/chat", label: "Chat Interno", icon: MessageSquare },
+  { href: "/analytics", label: "Analytics", icon: BarChart },
   { href: "/settings", label: "Configurações", icon: Settings },
 ];
 

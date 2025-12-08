@@ -1,7 +1,8 @@
 import logging
 import os
-from typing import List
+from typing import List, Tuple, Dict, Any
 import time
+import hashlib
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -9,12 +10,6 @@ from sqlalchemy.orm import Session
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 
-from app.infrastructure.db.session import SessionLocal
-from app.infrastructure.db.models.document_model import DocumentModel, DocumentStatus
-from app.services.embedding_service import EmbeddingService
-from app.services.qdrant_service import QdrantService
-
-logger = logging.getLogger("company_buddy.ingestion")
 
 def extract_text_from_pdf(file_path: str) -> str:
     try:
@@ -139,21 +134,67 @@ def run_document_ingestion(document_id: int) -> None:
 
         logger.info(f"[INGESTION] Texto extraído. Tamanho (chars)={len(raw_text)}")
 
-        # 2) chunkar
-        logger.info("[INGESTION] Gerando chunks...")
-        chunks = chunk_text(raw_text)
-        logger.info(f"[INGESTION] Chunks gerados: {len(chunks)}")
+        # 2) Semantic chunking with overlap and structure detection
+        logger.info("[INGESTION] Gerando chunks semânticos...")
+        
+        chunker = get_semantic_chunker(
+            max_chunk_size=1000,
+            overlap_size=200,
+        )
+        
+        doc_metadata = {
+            "filename": document.original_filename,
+            "category": getattr(document, "category", None),
+        }
+        
+        chunks_with_metadata = chunker.chunk_text(raw_text, doc_metadata)
+        logger.info(f"[INGESTION] Chunks gerados: {len(chunks_with_metadata)}")
 
-        if not chunks:
+        if not chunks_with_metadata:
             raise RuntimeError("Nenhum chunk gerado a partir do texto extraído.")
+        
+        # 3) Deduplication - check for existing hashes
+        logger.info("[INGESTION] Verificando duplicatas...")
+        existing_hashes = set(
+            db.query(ChunkHashModel.content_hash)
+            .filter(ChunkHashModel.tenant_id == document.tenant_id)
+            .all()
+        )
+        existing_hashes = {h[0] for h in existing_hashes}
+        
+        # Filter out duplicates
+        unique_chunks = []
+        chunk_metadata_list = []
+        duplicates_found = 0
+        
+        for chunk_text, chunk_meta in chunks_with_metadata:
+            content_hash = chunk_meta["content_hash"]
+            if content_hash not in existing_hashes:
+                unique_chunks.append(chunk_text)
+                chunk_metadata_list.append(chunk_meta)
+                existing_hashes.add(content_hash)  # Track for this batch
+            else:
+                duplicates_found += 1
+        
+        logger.info(
+            f"[INGESTION] Chunks únicos: {len(unique_chunks)}, "
+            f"Duplicatas removidas: {duplicates_found}"
+        )
+        
+        if not unique_chunks:
+            logger.warning("[INGESTION] Todos os chunks são duplicatas. Nada a processar.")
+            document.status = DocumentStatus.PROCESSED
+            db.add(document)
+            db.commit()
+            return
 
-        # 3) embeddings
+        # 4) Generate embeddings
         logger.info("[INGESTION] Gerando embeddings com Gemini...")
         embedding_service = EmbeddingService()
-        embeddings = embedding_service.embed_texts(chunks)
+        embeddings = embedding_service.embed_texts(unique_chunks)
         logger.info(f"[INGESTION] Embeddings gerados: {len(embeddings)}")
 
-        # 4) Qdrant
+        # 5) Qdrant
         logger.info("[INGESTION] Enviando chunks para Qdrant...")
         qdrant_service = QdrantService()
         
@@ -169,16 +210,32 @@ def run_document_ingestion(document_id: int) -> None:
         qdrant_service.upsert_chunks(
             tenant_id=document.tenant_id,
             document_id=document.id,
-            chunks=chunks,
+            chunks=unique_chunks,
             embeddings=embeddings,
             document_metadata=document_metadata,
         )
         logger.info("[INGESTION] Upsert no Qdrant concluído.")
+        
+        # 6) Save chunk hashes for deduplication
+        logger.info("[INGESTION] Salvando hashes dos chunks...")
+        for idx, (chunk_text, chunk_meta) in enumerate(zip(unique_chunks, chunk_metadata_list)):
+            chunk_hash_record = ChunkHashModel(
+                tenant_id=document.tenant_id,
+                document_id=document.id,
+                content_hash=chunk_meta["content_hash"],
+                chunk_index=idx,
+                char_count=chunk_meta.get("char_count"),
+                word_count=chunk_meta.get("word_count"),
+            )
+            db.add(chunk_hash_record)
+        
+        db.commit()
+        logger.info(f"[INGESTION] {len(unique_chunks)} hashes salvos.")
 
-        # 5) atualizar status
+        # 7) Update document status
         document.status = DocumentStatus.PROCESSED
         if hasattr(document, "chunks_count"):
-            document.chunks_count = len(chunks)
+            document.chunks_count = len(unique_chunks)
 
         db.add(document)
         db.commit()

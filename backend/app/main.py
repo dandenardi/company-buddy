@@ -15,6 +15,7 @@ from app.api.v1.routes.documents import router as documents_router
 from app.api.v1.routes.qdrant import router as qdrant_router
 from app.api.v1.routes.tenants import router as tenants_router
 from app.api.v1.routes.feedback import router as feedback_router
+from app.api.v1.routes.analytics import router as analytics_router
 
 logging.basicConfig(level=logging.INFO)
 
@@ -81,6 +82,71 @@ def run_startup_migrations() -> None:
             )
         )
 
+        # Add document metadata columns
+        database_session.execute(
+            text(
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS category VARCHAR(255);
+                """
+            )
+        )
+
+        database_session.execute(
+            text(
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS language VARCHAR(10) DEFAULT 'pt-BR';
+                """
+            )
+        )
+
+        database_session.execute(
+            text(
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS page_count INTEGER;
+                """
+            )
+        )
+
+        database_session.execute(
+            text(
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64);
+                """
+            )
+        )
+
+        database_session.execute(
+            text(
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;
+                """
+            )
+        )
+
+        database_session.execute(
+            text(
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS chunks_count INTEGER;
+                """
+            )
+        )
+
+        # Create index on content_hash if it doesn't exist
+        database_session.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS idx_documents_content_hash 
+                ON documents(content_hash);
+                """
+            )
+        )
+
         database_session.commit()
         logging.info("Migrations simples finalizadas com sucesso.")
     except Exception as error:  # noqa: BLE001
@@ -120,6 +186,8 @@ def create_app() -> FastAPI:
         import app.infrastructure.db.models.document_model  # noqa: F401
         import app.infrastructure.db.models.feedback_model  # noqa: F401
         import app.infrastructure.db.models.query_log_model # noqa: F401
+        import app.infrastructure.db.models.chunk_hash_model # noqa: F401
+        import app.infrastructure.db.models.conversation_model # noqa: F401
 
         # Check database connection before running migrations
         try:
@@ -181,6 +249,14 @@ def create_app() -> FastAPI:
         prefix=settings.api_v1_prefix + "/feedback",
         tags=["feedback"],
     )
+
+    application.include_router(
+        analytics_router,
+        prefix=settings.api_v1_prefix + "/analytics",
+        tags=["analytics"],
+    )
+
+    return application
 
     return application
 

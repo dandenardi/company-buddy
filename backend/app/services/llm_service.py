@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Sequence
+import re
+from typing import Any, Dict, List, Optional, Sequence
 
 import google.generativeai as genai
 from google.generativeai.types import GenerateContentResponse
@@ -86,6 +87,90 @@ class LLMService:
 
         return answer_text
 
+    def answer_with_context_and_citations(
+        self,
+        question: str,
+        context_chunks: Sequence[Dict[str, Any]],
+        system_prompt: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Gera resposta com citações obrigatórias.
+        
+        Args:
+            question: Pergunta do usuário
+            context_chunks: Lista de dicts com 'text' e metadados (document_name, etc)
+            system_prompt: Prompt customizado do tenant (opcional)
+        
+        Returns:
+            {
+                "answer": str,           # Resposta com citações [N]
+                "citations": List[int],  # Números citados [1, 2, 3]
+                "has_answer": bool,      # False se resposta for "não sei"
+            }
+        """
+        # Numerar chunks para citação
+        numbered_context = "\n\n".join([
+            f"[{i+1}] {chunk['text']}\n(Fonte: {chunk.get('document_name', 'Desconhecido')})"
+            for i, chunk in enumerate(context_chunks)
+        ])
+        
+        base_prompt = system_prompt or (
+            "Você é um assistente interno de uma empresa. "
+            "Responda SEMPRE em português brasileiro, de forma clara e objetiva.\n\n"
+            "REGRAS OBRIGATÓRIAS:\n"
+            "1. Use APENAS as informações dos trechos numerados abaixo\n"
+            "2. Cite os números dos trechos que você usou (ex: [1], [2])\n"
+            "3. Se a resposta não estiver nos trechos, responda EXATAMENTE:\n"
+            "   'Não encontrei essa informação nos documentos disponíveis. "
+            "   Sugiro adicionar documentos relacionados ou reformular a pergunta.'\n"
+            "4. NÃO invente informações\n"
+            "5. NÃO use conhecimento externo\n"
+        )
+        
+        prompt = (
+            f"{base_prompt}\n\n"
+            f"TRECHOS:\n{numbered_context}\n\n"
+            f"PERGUNTA:\n{question}\n\n"
+            f"RESPOSTA (com citações [N]):"
+        )
+        
+        try:
+            response: GenerateContentResponse = self.model.generate_content(prompt)
+        except Exception as error:  # noqa: BLE001
+            logger.exception("Erro ao chamar Gemini: %s", error)
+            raise LLMServiceError("Falha ao chamar o modelo de linguagem.") from error
+        
+        answer_text = self._extract_text_from_response(response)
+        
+        if not answer_text:
+            finish_reason = None
+            try:
+                if response.candidates:
+                    finish_reason = response.candidates[0].finish_reason
+            except Exception:  # noqa: BLE001
+                pass
+
+            logger.error(
+                "LLM não retornou texto. finish_reason=%s response=%r",
+                finish_reason,
+                response,
+            )
+            raise LLMServiceError(
+                "O modelo não conseguiu gerar uma resposta para essa pergunta no momento."
+            )
+        
+        # Extrair citações
+        citations = self._extract_citations(answer_text)
+        
+        # Detectar "não sei"
+        has_answer = not self._is_no_answer_response(answer_text)
+        
+        return {
+            "answer": answer_text,
+            "citations": citations,
+            "has_answer": has_answer,
+        }
+
     @staticmethod
     def _extract_text_from_response(response: GenerateContentResponse) -> Optional[str]:
         """
@@ -120,6 +205,25 @@ class LLMService:
             return "\n".join(texts)
 
         return None
+
+    @staticmethod
+    def _extract_citations(text: str) -> List[int]:
+        """Extrai números de citações [N] do texto."""
+        matches = re.findall(r'\[(\d+)\]', text)
+        return sorted(set(int(m) for m in matches))
+
+    @staticmethod
+    def _is_no_answer_response(text: str) -> bool:
+        """Detecta se a resposta é 'não sei'."""
+        no_answer_phrases = [
+            "não encontrei",
+            "não há informação",
+            "não está disponível",
+            "não consta",
+            "sugiro adicionar documentos",
+        ]
+        text_lower = text.lower()
+        return any(phrase in text_lower for phrase in no_answer_phrases)
 
 
 # Dependency para usar com Depends(get_llm_service)
