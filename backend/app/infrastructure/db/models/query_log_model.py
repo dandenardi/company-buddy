@@ -14,6 +14,7 @@ class QueryLogModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=True, index=True)
     
     # The question asked
     question = Column(Text, nullable=False)

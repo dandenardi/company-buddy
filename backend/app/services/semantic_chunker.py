@@ -55,11 +55,63 @@ class SemanticChunker:
         
         metadata = document_metadata or {}
         
-        # 1. Detect document structure
-        sections = self._detect_sections(text)
+        # 1. Resolve page numbers from markers if present
+        # Pattern: <<<PAGE_(\d+)>>>
+        # We need to map ranges of text to page numbers.
+        # But we also need to REMOVE the markers so they don't appear in chunks.
+        # Strategy:
+        # - Split text by markers.
+        # - Reconstruct text without markers, keeping track of original page for each segment.
+        # - Map character offsets in clean text to page numbers.
         
-        # 2. Chunk each section with overlap
+        clean_text_parts = []
+        page_map = [] # List of (start_char, end_char, page_num)
+        
+        # Split by marker pattern
+        parts = re.split(r'(<<<PAGE_\d+>>>)', text)
+        
+        current_page = 1 # Default to 1 if no marker
+        current_offset = 0
+        
+        for part in parts:
+            if part.startswith("<<<PAGE_"):
+                # It's a marker
+                try:
+                    current_page = int(part[8:-3])
+                except ValueError:
+                    pass
+            else:
+                # It's content
+                if part:
+                    length = len(part)
+                    page_map.append((current_offset, current_offset + length, current_page))
+                    clean_text_parts.append(part)
+                    current_offset += length
+        
+        clean_text = "".join(clean_text_parts)
+        
+        # If no markers were found, clean_text == text, page_map has one entry covering whole text
+        if not page_map:
+             page_map.append((0, len(text), 1))
+        
+        # 2. Detect document structure using clean text
+        sections = self._detect_sections(clean_text)
+        
+        # 3. Chunk each section with overlap
         all_chunks = []
+        
+        # We need to track where we are in clean_text to map back to pages
+        # This is tricky because chunking creates new strings.
+        # Approximate approach: Find chunk in clean_text.
+        # BETTER: `_chunk_section` works on sub-strings. 
+        # But `_detect_sections` splits by lines.
+        
+        # Let's verify where chunks come from.
+        # Since we just search for the chunk text in clean_text?
+        # That might be ambiguous if text repeats.
+        
+        # Alternative: We can guess page based on substring search, traversing progressively.
+        search_start_idx = 0
         
         for section in sections:
             section_chunks = self._chunk_section(
@@ -68,11 +120,43 @@ class SemanticChunker:
             )
             
             for chunk_text in section_chunks:
+                # Resolve page number
+                # Find this chunk in clean_text starting from search_start_idx
+                # Note: chunk_text might contain "## Title" which isn't in clean_text exactly if we added it.
+                # Remove title for search if needed.
+                
+                search_text = chunk_text
+                if chunk_text.startswith("## ") and section.get("title"):
+                    # If we added title to chunk, the original text is after the title line
+                     lines = chunk_text.split('\n', 1)
+                     if len(lines) > 1:
+                         search_text = lines[1].strip()
+                     else:
+                         search_text = chunk_text.replace(f"## {section.get('title')}", "").strip()
+
+                # Basic normalization for search
+                # We search for a unique enough substring (e.g. first 50 chars)
+                snippet = search_text[:50]
+                found_idx = clean_text.find(snippet, search_start_idx)
+                
+                page_num = 1
+                if found_idx != -1:
+                    # Update search start so we move forward
+                    search_start_idx = found_idx
+                    
+                    # Find page in map
+                    for start, end, p_num in page_map:
+                        if start <= found_idx < end:
+                            page_num = p_num
+                            break
+                            
                 chunk_metadata = {
                     "section_title": section.get("title"),
+                    "page_number": page_num, # New metadata
                     "content_hash": self._generate_hash(chunk_text),
                     "char_count": len(chunk_text),
                     "word_count": len(chunk_text.split()),
+                    **metadata # Merge passed metadata (like filename)
                 }
                 all_chunks.append((chunk_text, chunk_metadata))
         

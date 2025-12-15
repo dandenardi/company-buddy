@@ -10,25 +10,38 @@ from sqlalchemy.orm import Session
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 
+from app.infrastructure.db.session import SessionLocal
+from app.infrastructure.db.models.document_model import DocumentModel, DocumentStatus
+from app.infrastructure.db.models.chunk_hash_model import ChunkHashModel
+from app.services.embedding_service import EmbeddingService
+from app.services.qdrant_service import QdrantService
+from app.services.semantic_chunker import get_semantic_chunker
 
-def extract_text_from_pdf(file_path: str) -> str:
+logger = logging.getLogger(__name__)
+
+
+def extract_text_from_pdf(file_path: str) -> Tuple[str, int]:
     try:
         reader = PdfReader(file_path)
         texts = []
-        for page in reader.pages:
-            texts.append(page.extract_text() or "")
-        return "\n".join(texts)
+        page_count = len(reader.pages)
+        for i, page in enumerate(reader.pages):
+            page_text = page.extract_text() or ""
+            # Inject page marker
+            texts.append(f"<<<PAGE_{i+1}>>>\n{page_text}")
+        return "\n".join(texts), page_count
     except Exception as exc:
         raise RuntimeError(f"Erro ao extrair texto do PDF: {exc}")
 
 
-def extract_text_from_docx(file_path: str) -> str:
+def extract_text_from_docx(file_path: str) -> Tuple[str, int]:
     try:
         doc = DocxDocument(file_path)
         texts = []
         for paragraph in doc.paragraphs:
             texts.append(paragraph.text)
-        return "\n".join(texts)
+        # DOCX doesn't have pages easily accessible, so we return page_count=1 (or None)
+        return "\n".join(texts), 1
     except Exception as exc:
         raise RuntimeError(f"Erro ao extrair texto do DOCX: {exc}")
 
@@ -115,13 +128,14 @@ def run_document_ingestion(document_id: int) -> None:
 
         # 1) extrair texto
         logger.info("[INGESTION] Extraindo texto...")
+        page_count = None
         if document.content_type == "application/pdf":
-            raw_text = extract_text_from_pdf(file_path)
+            raw_text, page_count = extract_text_from_pdf(file_path)
         elif (
             document.content_type
             == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ):
-            raw_text = extract_text_from_docx(file_path)
+            raw_text, page_count = extract_text_from_docx(file_path)
         else:
             raise HTTPException(
                 status_code=400,
@@ -145,6 +159,7 @@ def run_document_ingestion(document_id: int) -> None:
         doc_metadata = {
             "filename": document.original_filename,
             "category": getattr(document, "category", None),
+            "page_count": page_count,
         }
         
         chunks_with_metadata = chunker.chunk_text(raw_text, doc_metadata)
@@ -215,6 +230,28 @@ def run_document_ingestion(document_id: int) -> None:
             document_metadata=document_metadata,
         )
         logger.info("[INGESTION] Upsert no Qdrant concluído.")
+
+        # 5.1) Index in BM25 (In-Memory)
+        try:
+            from app.services.bm25_service import get_bm25_service
+            bm25_service = get_bm25_service()
+            
+            bm25_chunks = []
+            for idx, chunk_text in enumerate(unique_chunks):
+                bm25_chunks.append({
+                    "text": chunk_text,
+                    "tenant_id": document.tenant_id,
+                    "document_id": str(document.id),
+                    "chunk_index": idx,
+                    "document_name": document.original_filename,
+                    # We can add more metadata here if needed for post-filtering
+                })
+            
+            bm25_service.add_chunks(bm25_chunks)
+            logger.info(f"[INGESTION] {len(bm25_chunks)} chunks adicionados ao índice BM25.")
+        except Exception as e:
+            logger.error(f"[INGESTION] Erro ao indexar no BM25: {e}")
+            # Non-blocking, continue
         
         # 6) Save chunk hashes for deduplication
         logger.info("[INGESTION] Salvando hashes dos chunks...")
@@ -236,6 +273,9 @@ def run_document_ingestion(document_id: int) -> None:
         document.status = DocumentStatus.PROCESSED
         if hasattr(document, "chunks_count"):
             document.chunks_count = len(unique_chunks)
+        
+        if page_count and hasattr(document, "page_count"):
+            document.page_count = page_count
 
         db.add(document)
         db.commit()

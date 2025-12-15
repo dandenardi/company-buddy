@@ -53,6 +53,54 @@ def upload_document(
             detail="Apenas PDF e DOCX são suportados no momento.",
         )
 
+    # 1. Read file and compute hash
+    import hashlib
+    file_content = file.file.read()
+    content_hash = hashlib.sha256(file_content).hexdigest()
+    
+    # Reset file cursor for saving later
+    file.file.seek(0)
+    
+    # 2. Check for duplicates (same tenant, same hash)
+    # We look for ANY document with same hash.
+    # Note: If we want to allow same content but different filename to be a new doc, 
+    # we should check (hash + filename). 
+    # But usually deduplication implies "don't process same bytes twice".
+    # Let's check hash only.
+    
+    existing_doc_by_hash = (
+        db.query(DocumentModel)
+        .filter(
+            DocumentModel.tenant_id == current_user.tenant_id,
+            DocumentModel.content_hash == content_hash,
+            # We might want to filter out DELETED or FAILED, but for safety let's reuse valid ones.
+            # Only reuse if status is PROCESSED or PROCESSING? 
+            # If status is FAILED, maybe we retry?
+            # Let's reuse regardless to avoid storage bloat.
+        )
+        .first()
+    )
+    
+    if existing_doc_by_hash:
+        logger.info(f"[UPLOAD] Duplicate content detected. Returning existing document {existing_doc_by_hash.id}")
+        return existing_doc_by_hash
+
+    # 3. Versioning (same filename, different content)
+    original_filename = file.filename
+    
+    # Get max version for this filename
+    from sqlalchemy import func
+    max_version = (
+        db.query(func.max(DocumentModel.version))
+        .filter(
+            DocumentModel.tenant_id == current_user.tenant_id,
+            DocumentModel.original_filename == original_filename
+        )
+        .scalar()
+    )
+    
+    new_version = (max_version or 0) + 1
+
     tenant_folder = os.path.join(UPLOAD_ROOT_DIR, f"tenant_{current_user.tenant_id}")
     os.makedirs(tenant_folder, exist_ok=True)
 
@@ -61,16 +109,18 @@ def upload_document(
     stored_path = os.path.join(tenant_folder, unique_name)
 
     with open(stored_path, "wb") as out_file:
-        out_file.write(file.file.read())
+        out_file.write(file_content) # Use the content we already read
 
     document = DocumentModel(
         tenant_id=current_user.tenant_id,
         owner_id=current_user.id,
-        original_filename=file.filename or unique_name,
+        original_filename=original_filename,
         stored_filename=stored_path,
         stored_path=stored_path,
         content_type=file.content_type,
-        status=DocumentStatus.PROCESSING,  # agora começa como PROCESSING
+        status=DocumentStatus.PROCESSING,
+        content_hash=content_hash,
+        version=new_version,
     )
 
     db.add(document)

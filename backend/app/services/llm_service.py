@@ -92,14 +92,16 @@ class LLMService:
         question: str,
         context_chunks: Sequence[Dict[str, Any]],
         system_prompt: Optional[str] = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """
-        Gera resposta com citações obrigatórias.
+        Gera resposta com citações obrigatórias e histórico de conversa.
         
         Args:
             question: Pergunta do usuário
             context_chunks: Lista de dicts com 'text' e metadados (document_name, etc)
             system_prompt: Prompt customizado do tenant (opcional)
+            chat_history: Lista de mensagens anteriores (ex: [{'role': 'user', 'content': '...'}])
         
         Returns:
             {
@@ -127,10 +129,19 @@ class LLMService:
             "5. NÃO use conhecimento externo\n"
         )
         
+        history_text = ""
+        if chat_history:
+            history_text = "HISTÓRICO DA CONVERSA:\n"
+            for msg in chat_history:
+                role = "USUÁRIO" if msg["role"] == "user" else "ASSISTENTE"
+                history_text += f"{role}: {msg['content']}\n"
+            history_text += "\n"
+        
         prompt = (
             f"{base_prompt}\n\n"
             f"TRECHOS:\n{numbered_context}\n\n"
-            f"PERGUNTA:\n{question}\n\n"
+            f"{history_text}"
+            f"PERGUNTA ATUAL:\n{question}\n\n"
             f"RESPOSTA (com citações [N]):"
         )
         

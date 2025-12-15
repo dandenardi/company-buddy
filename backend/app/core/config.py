@@ -41,4 +41,10 @@ class Settings(BaseSettings):
     qdrant_api_key: str | None = None
     qdrant_collection_name: str = "company_buddy_chunks"
 
+    # Hybrid Search
+    hybrid_search_enabled: bool = True
+    hybrid_vector_weight: float = 0.5
+    hybrid_bm25_weight: float = 0.5
+    hybrid_rrf_k: int = 60
+
 settings = Settings()
