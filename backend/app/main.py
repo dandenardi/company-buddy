@@ -207,6 +207,16 @@ def create_app() -> FastAPI:
         init_database()
         run_startup_migrations()
 
+        # Ensure Qdrant collection exists (Idempotent)
+        try:
+            from app.services.qdrant_service import QdrantService
+            logging.info("Verificando coleção no Qdrant...")
+            QdrantService() # This calls _ensure_collection() in __init__
+            logging.info("Coleção do Qdrant verificada/criada com sucesso.")
+        except Exception as e:
+            logging.error(f"Erro ao inicializar Qdrant: {e}")
+
+
     # Routers
     application.include_router(
         health_router,

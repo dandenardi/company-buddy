@@ -90,3 +90,26 @@ export async function apiGetDocuments(accessToken: string) {
 
   return handleJsonResponse(res);
 }
+
+export async function apiSubmitFeedback(
+  accessToken: string,
+  data: {
+    question: string;
+    answer: string;
+    rating: 1 | 5;
+    comment?: string;
+    chunks_used?: any[];
+    avg_score?: number;
+  },
+) {
+  const res = await fetch(`${API_URL}/feedback`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(data),
+  });
+
+  return handleJsonResponse(res);
+}

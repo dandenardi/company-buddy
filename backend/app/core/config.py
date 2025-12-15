@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     backend_cors_origins: List[AnyHttpUrl] = []
+    
+    frontend_base_url: str = "http://localhost:3000"
+
 
     # Banco
     # Agora usamos Postgres por padrão, mas pode ser sobrescrito via variável de ambiente DATABASE_URL

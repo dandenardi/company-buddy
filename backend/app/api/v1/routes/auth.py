@@ -211,7 +211,7 @@ async def login_google_callback(
     jwt_token = create_access_token(token_data)
 
     
-    frontend_callback_url = "http://localhost:3000/callback"
+    frontend_callback_url = f"{settings.frontend_base_url}/callback"
     redirect_url = f"{frontend_callback_url}?token={jwt_token}"
 
     return RedirectResponse(url=redirect_url, status_code=302)
