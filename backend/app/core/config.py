@@ -11,7 +11,7 @@ class Settings(BaseSettings):
 
     backend_cors_origins: List[AnyHttpUrl] = []
     
-    frontend_base_url: str = "http://localhost:3000"
+    frontend_base_url: str = Field(default="http://localhost:3000", env="FRONTEND_BASE_URL")
 
 
     # Banco
