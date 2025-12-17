@@ -55,7 +55,7 @@ export async function apiRegister(
   return handleJsonResponse(res);
 }
 
-export const GOOGLE_LOGIN_URL = `${API_URL}/auth/google/login`;
+export const GOOGLE_LOGIN_URL = `${API_URL}/auth/login/google`;
 
 export async function apiGetMe(accessToken: string) {
   const res = await fetch(`${API_URL}/auth/me`, {
