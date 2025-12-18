@@ -75,7 +75,7 @@ export function useChat(options?: UseChatOptions): UseChatReturn {
           );
         }
 
-        const response = await fetch(`${apiBaseUrl}`, {
+        const response = await fetch(`${apiBaseUrl}/ask`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
