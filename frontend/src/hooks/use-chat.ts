@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { API_BASE_URL } from "@/lib/api";
 
 export type ChatRole = "user" | "assistant" | "system";
 
@@ -36,10 +37,7 @@ export function useChat(options?: UseChatOptions): UseChatReturn {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const apiBaseUrl =
-    options?.apiBaseUrl ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    "http://localhost:8000";
+  const apiBaseUrl = options?.apiBaseUrl || API_BASE_URL;
 
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -77,7 +75,7 @@ export function useChat(options?: UseChatOptions): UseChatReturn {
           );
         }
 
-        const response = await fetch(`${apiBaseUrl}/api/v1/ask`, {
+        const response = await fetch(`${apiBaseUrl}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
