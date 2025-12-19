@@ -1,5 +1,7 @@
-from typing import List
-from pydantic import AnyHttpUrl, SecretStr, Field
+from typing import List, Any
+import json
+
+from pydantic import AnyHttpUrl, SecretStr, Field, field_validator
 from pydantic_settings import BaseSettings
 from fastapi.security import OAuth2PasswordBearer
 
@@ -9,12 +11,10 @@ class Settings(BaseSettings):
     # App
     # =========================
     project_name: str = "Company Buddy"
-
-    # Prefixo interno de roteamento (APENAS FastAPI)
     api_v1_prefix: str = "/api/v1"
 
     # =========================
-    # URLs públicas (externas)
+    # URLs públicas
     # =========================
     backend_public_url: AnyHttpUrl = Field(
         default="http://localhost:8000",
@@ -27,9 +27,48 @@ class Settings(BaseSettings):
     )
 
     # =========================
-    # CORS
+    # CORS (ROBUSTO)
     # =========================
-    backend_cors_origins: List[AnyHttpUrl] = []
+    backend_cors_origins: List[AnyHttpUrl] = Field(
+        default=[],
+        env="BACKEND_CORS_ORIGINS",
+    )
+
+    @field_validator("backend_cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: Any) -> List[str]:
+        """
+        Aceita:
+        - JSON list
+        - string única
+        - CSV
+        - None / vazio
+        """
+        if value is None or value == "":
+            return []
+
+        # Já é lista (caso ideal)
+        if isinstance(value, list):
+            return value
+
+        # String
+        if isinstance(value, str):
+            value = value.strip()
+
+            # Tenta JSON primeiro
+            if value.startswith("["):
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, list):
+                        return parsed
+                except Exception:
+                    pass
+
+            # Fallback: CSV ou string única
+            return [item.strip() for item in value.split(",") if item.strip()]
+
+        # Qualquer outro caso
+        return []
 
     # =========================
     # Database
@@ -44,10 +83,8 @@ class Settings(BaseSettings):
     # =========================
     jwt_secret_key: SecretStr = SecretStr("change-me-in-.env")
     jwt_algorithm: str = "HS256"
-    access_token_expires_minutes: int = 60 * 24  # 24h
+    access_token_expires_minutes: int = 60 * 24
 
-    # OAuth2PasswordBearer
-    # ⚠️ tokenUrl é um detalhe INTERNO do OpenAPI
     oauth2_scheme: OAuth2PasswordBearer = OAuth2PasswordBearer(
         tokenUrl="/api/v1/auth/login"
     )
@@ -57,8 +94,6 @@ class Settings(BaseSettings):
     # =========================
     google_client_id: str = Field(default="", env="GOOGLE_CLIENT_ID")
     google_client_secret: str = Field(default="", env="GOOGLE_CLIENT_SECRET")
-
-    # Callback que o Google chama (URL PÚBLICA)
     google_redirect_uri: AnyHttpUrl = Field(
         default="http://localhost:8000/api/v1/auth/login/google/callback",
         env="GOOGLE_REDIRECT_URI",
@@ -67,7 +102,7 @@ class Settings(BaseSettings):
     google_api_key: str | None = Field(default=None, env="GOOGLE_API_KEY")
 
     # =========================
-    # Vector Store / Search
+    # Vector / Search
     # =========================
     qdrant_url: AnyHttpUrl
     qdrant_api_key: str | None = None
