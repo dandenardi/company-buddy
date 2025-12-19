@@ -154,7 +154,9 @@ async def login_google(request: Request) -> Any:
     """
     Redireciona o usuário para o fluxo de autenticação do Google.
     """
-    redirect_uri: str = settings.google_redirect_uri
+    # 2️⃣ Monte URLs externas explicitamente com backend_public_url
+    # Ex: https://company-buddy.onrender.com/api/v1/auth/login/google/callback
+    redirect_uri = f"{settings.backend_public_url}{settings.api_v1_prefix}/auth/login/google/callback"
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
