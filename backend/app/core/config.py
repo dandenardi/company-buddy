@@ -27,35 +27,33 @@ class Settings(BaseSettings):
     )
 
     # =========================
-    # CORS (ROBUSTO)
+    # CORS (LEIA COMO STR!)
     # =========================
-    backend_cors_origins: List[AnyHttpUrl] = Field(
-        default=[],
+    backend_cors_origins: Any = Field(
+        default="",
         env="BACKEND_CORS_ORIGINS",
     )
 
     @field_validator("backend_cors_origins", mode="before")
     @classmethod
-    def parse_cors_origins(cls, value: Any) -> List[str]:
+    def normalize_cors_origins(cls, value) -> List[str]:
         """
         Aceita:
-        - JSON list
+        - string vazia
         - string única
         - CSV
-        - None / vazio
+        - JSON list
         """
-        if value is None or value == "":
+        if not value:
             return []
 
-        # Já é lista (caso ideal)
         if isinstance(value, list):
             return value
 
-        # String
         if isinstance(value, str):
             value = value.strip()
 
-            # Tenta JSON primeiro
+            # JSON list
             if value.startswith("["):
                 try:
                     parsed = json.loads(value)
@@ -64,10 +62,9 @@ class Settings(BaseSettings):
                 except Exception:
                     pass
 
-            # Fallback: CSV ou string única
-            return [item.strip() for item in value.split(",") if item.strip()]
+            # CSV ou string única
+            return [v.strip() for v in value.split(",") if v.strip()]
 
-        # Qualquer outro caso
         return []
 
     # =========================
@@ -94,6 +91,7 @@ class Settings(BaseSettings):
     # =========================
     google_client_id: str = Field(default="", env="GOOGLE_CLIENT_ID")
     google_client_secret: str = Field(default="", env="GOOGLE_CLIENT_SECRET")
+
     google_redirect_uri: AnyHttpUrl = Field(
         default="http://localhost:8000/api/v1/auth/login/google/callback",
         env="GOOGLE_REDIRECT_URI",
