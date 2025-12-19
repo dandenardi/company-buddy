@@ -1,5 +1,6 @@
 from typing import List, Any
 import json
+import logging
 
 from pydantic import AnyHttpUrl, SecretStr, Field, field_validator
 from pydantic_settings import BaseSettings
@@ -116,3 +117,7 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+logger = logging.getLogger(__name__)
+
+logger.info("Google redirect_uri usado: %s", settings.google_redirect_uri)
