@@ -96,8 +96,7 @@ class Settings(BaseSettings):
         default="http://localhost:8000/api/v1/auth/login/google/callback",
         env="GOOGLE_REDIRECT_URI",
     )
-    logger.info("Google redirect_uri usado: %s", settings.google_redirect_uri)
-    google_api_key: str | None = Field(default=None, env="GOOGLE_API_KEY")
+    
 
     # =========================
     # Vector / Search
