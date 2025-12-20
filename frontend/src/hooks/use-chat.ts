@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { API_BASE_URL } from "@/lib/api";
+import { API_URL } from "@/lib/api";
 
 export type ChatRole = "user" | "assistant" | "system";
 
@@ -37,7 +37,7 @@ export function useChat(options?: UseChatOptions): UseChatReturn {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const apiBaseUrl = options?.apiBaseUrl || API_BASE_URL;
+  const apiBaseUrl = options?.apiBaseUrl || API_URL;
 
   const clearMessages = useCallback(() => {
     setMessages([]);

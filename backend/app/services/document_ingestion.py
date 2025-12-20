@@ -284,7 +284,7 @@ def run_document_ingestion(document_id: int) -> None:
         elapsed = time.perf_counter() - start_time
         logger.info(
             f"[INGESTION] Documento {document.id} processado com sucesso. "
-            f"Chunks={len(chunks)} tempo={elapsed:.2f}s"
+            f"Chunks={len(unique_chunks)} tempo={elapsed:.2f}s"
         )
 
     except Exception as exc:

@@ -153,7 +153,7 @@ def login(
 async def login_google(request: Request) -> Any:
     return await oauth.google.authorize_redirect(
         request,
-        redirect_uri=settings.google_redirect_uri,
+        redirect_uri=str(settings.google_redirect_uri),
     )
 
 
@@ -210,7 +210,7 @@ async def login_google_callback(
     jwt_token = create_access_token(token_data)
 
     
-    frontend_callback_url = f"{settings.frontend_base_url}/callback"
+    frontend_callback_url = f"{settings.frontend_public_url}/callback"
     redirect_url = f"{frontend_callback_url}?token={jwt_token}"
 
     return RedirectResponse(url=redirect_url, status_code=302)

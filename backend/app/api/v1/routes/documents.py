@@ -11,6 +11,7 @@ from app.core.deps import get_db, get_current_user
 from app.infrastructure.db.models.document_model import DocumentModel, DocumentStatus
 from app.schemas.document import DocumentBase
 from app.infrastructure.db.models.user_model import UserModel
+from app.infrastructure.db.models.chunk_hash_model import ChunkHashModel
 from app.services.document_ingestion import run_document_ingestion
 from app.services.qdrant_service import QdrantService
 
@@ -235,11 +236,17 @@ def delete_document(
             pass
 
     # Remove pontos do Qdrant
-    qdrant = QdrantService()
-    qdrant.delete_document(
-        tenant_id=document.tenant_id,
-        document_id=document.id,
-    )
+    try:
+        qdrant = QdrantService()
+        qdrant.delete_document(
+            tenant_id=document.tenant_id,
+            document_id=document.id,
+        )
+    except Exception as e:
+        logger.warning(f"Error deleting from Qdrant: {e}")
+
+    # Remove chunk_hashes records to prevent ForeignKeyViolation
+    db.query(ChunkHashModel).filter(ChunkHashModel.document_id == document.id).delete()
 
     # Remove registro do banco
     db.delete(document)

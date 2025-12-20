@@ -147,6 +147,15 @@ def run_startup_migrations() -> None:
             )
         )
 
+        database_session.execute(
+            text(
+                """
+                ALTER TABLE query_logs
+                ADD COLUMN IF NOT EXISTS conversation_id INTEGER;
+                """
+            )
+        )
+
         database_session.commit()
         logging.info("Migrations simples finalizadas com sucesso.")
     except Exception as error:  # noqa: BLE001
