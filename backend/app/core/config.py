@@ -97,6 +97,7 @@ class Settings(BaseSettings):
         default="http://localhost:8000/api/v1/auth/login/google/callback",
         env="GOOGLE_REDIRECT_URI",
     )
+    google_api_key: str | None = Field(default=None, env="GOOGLE_API_KEY")
     
 
     # =========================
