@@ -108,10 +108,6 @@ class Settings(BaseSettings):
     hybrid_bm25_weight: float = 0.5
     hybrid_rrf_k: int = 60
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-
 
 settings = Settings()
 
