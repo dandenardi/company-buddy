@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any, Dict, List, Optional, Sequence
-
-import google.generativeai as genai
 from google.generativeai.types import GenerateContentResponse
 
 from app.core.config import settings  # ajuste se seu settings tiver outro nome
@@ -30,14 +28,29 @@ class LLMService:
         api_key: se None, usa settings.GOOGLE_API_KEY
         model_name: se None, usa "gemini-2.5-flash" ou o que você definir no settings
         """
-        api_key = api_key or settings.google_api_key
-        if not api_key:
+        self._api_key = api_key or settings.google_api_key
+        if not self._api_key:
             raise RuntimeError("GOOGLE_API_KEY não configurado.")
 
-        model_name = model_name or getattr(settings, "GEMINI_MODEL_NAME", "gemini-2.5-flash")
+        self._model_name = model_name or getattr(settings, "GEMINI_MODEL_NAME", "gemini-2.5-flash")
 
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model_name)
+        self._model = None
+        self._configured = False
+    
+    def _get_model(self):
+        if self._model is not None:
+            return self._model
+
+        logger.info("[LLM] Inicializando modelo Gemini sob demanda...")
+
+        import google.generativeai as genai
+
+        if not self._configured:
+            genai.configure(api_key=self._api_key)
+            self._configured = True
+
+        self._model = genai.GenerativeModel(self._model_name)
+        return self._model
 
     def answer_with_context(self, question: str, context_chunks: Sequence[str], system_prompt: Optional[str] = None,) -> str:
         """
@@ -62,7 +75,7 @@ class LLMService:
         )
 
         try:
-            response: GenerateContentResponse = self.model.generate_content(prompt)
+            response: GenerateContentResponse = self._get_model().generate_content(prompt)
         except Exception as error:  # noqa: BLE001
             logger.exception("Erro ao chamar Gemini: %s", error)
             raise LLMServiceError("Falha ao chamar o modelo de linguagem.") from error
@@ -73,7 +86,7 @@ class LLMService:
             try:
                 if response.candidates:
                     finish_reason = response.candidates[0].finish_reason
-            except Exception:  # noqa: BLE001
+            except Exception:  
                 pass
 
             logger.error(
