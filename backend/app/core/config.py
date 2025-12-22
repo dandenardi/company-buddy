@@ -3,11 +3,13 @@ import json
 import logging
 
 from pydantic import AnyHttpUrl, SecretStr, Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from fastapi.security import OAuth2PasswordBearer
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
     # =========================
     # App
     # =========================
@@ -22,7 +24,7 @@ class Settings(BaseSettings):
     )
 
     frontend_public_url: AnyHttpUrl = Field(
-        env="FRONTEND_BASE_URL",
+        validation_alias="FRONTEND_BASE_URL",
     )
 
     # =========================
