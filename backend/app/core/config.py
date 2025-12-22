@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     # =========================
     # Auth / JWT
     # =========================
-    jwt_secret_key: SecretStr = SecretStr(env="JWT_SECRET_KEY")
+    jwt_secret_key: SecretStr = Field(env="JWT_SECRET_KEY")
     jwt_algorithm: str = "HS256"
     access_token_expires_minutes: int = 60 * 24
 
