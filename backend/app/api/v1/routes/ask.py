@@ -8,6 +8,7 @@ from datetime import datetime
 import logging
 import time
 from typing import List
+import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -24,7 +25,6 @@ from app.services.query_analyzer import get_query_analyzer
 from app.infrastructure.db.models.conversation_model import ConversationModel, MessageModel
 
 # ... (imports)
-
 
 
 class AskRequest(BaseModel):
@@ -53,7 +53,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 @router.post("", response_model=AskResponse)
-def ask(
+async def ask(
   payload: AskRequest,
   db: Session = Depends(get_db),
   current_user: UserModel = Depends(get_current_user),
@@ -220,12 +220,16 @@ def ask(
   # 2) Chama o LLM com tratamento de erro e suporte a citações
   # Pass ORIGINAL question to LLM for tone, but retrieved chunks are from REWRITTEN
   try:
-    result = llm.answer_with_context_and_citations(
-      question=question, 
-      context_chunks=context_chunks_with_metadata,
-      system_prompt=tenant_prompt,
-      chat_history=chat_history 
-    )
+    loop = asyncio.get_running_loop()
+
+    def _call_llm():
+      return llm.answer_with_context_and_citations(
+        question=question, 
+        context_chunks=context_chunks_with_metadata,
+        system_prompt=tenant_prompt,
+        chat_history=chat_history 
+      )
+    result = await loop.run_in_executor(None, _call_llm)
     
     answer = result["answer"]
     citations = result["citations"]
@@ -296,9 +300,12 @@ def ask(
   db.commit()
   
   logger.info(
-    f"[ASK] tenant={tenant_id} conversation={conversation.id} chunks={len(results)} "
-    f"avg_score={avg_score:.3f}" if avg_score else "avg_score=0.000",
-    f" time={response_time_ms}ms"
+        "[ASK] tenant=%s conversation=%s chunks=%s avg_score=%.3f time=%sms",
+        tenant_id,
+        conversation.id,
+        len(results),
+        avg_score or 0.0,
+        response_time_ms,
   )
 
   return AskResponse(
