@@ -1,317 +1,331 @@
-# app/api/v1/routes/ask.py
-
 from __future__ import annotations
 
-import logging
-import datetime as dt_module # Avoid conflict if any
-from datetime import datetime
-import logging
 import time
-from typing import List
 import asyncio
+import logging
+from datetime import datetime
+from typing import List, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, get_current_user
+from app.core.config import settings
 from app.infrastructure.db.models.user_model import UserModel
 from app.infrastructure.db.models.tenant_model import TenantModel
 from app.infrastructure.db.models.query_log_model import QueryLogModel
-from app.services.qdrant_service import QdrantService
-from app.services.llm_service import LLMService, LLMServiceError, get_llm_service
-from app.services.query_rewriter import get_query_rewriter
-from app.services.query_analyzer import get_query_analyzer
 from app.infrastructure.db.models.conversation_model import ConversationModel, MessageModel
 
-# ... (imports)
-
-
-class AskRequest(BaseModel):
-  question: str
-  conversation_id: int | None = None
-  top_k: int = 5
-
-
-class SourceChunk(BaseModel):
-  text: str
-  document_id: str | None = None
-  document_name: str | None = None
-  score: float | None = None
-  cited: bool = False
-
-
-class AskResponse(BaseModel):
-  answer: str
-  sources: List[SourceChunk]
-  has_answer: bool = True
-  citations: List[int] = []
-  conversation_id: int
-
+from app.services.llm_service import LLMService, LLMServiceError, get_llm_service
+from app.services.qdrant_service import QdrantService
+from app.services.query_rewriter import get_query_rewriter
+from app.services.query_analyzer import get_query_analyzer
+from app.services.hybrid_search_service import get_hybrid_search_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# ============================
+# Schemas
+# ============================
+
+class AskRequest(BaseModel):
+    question: str
+    conversation_id: int | None = None
+    top_k: int = 5
+
+
+class SourceChunk(BaseModel):
+    text: str
+    document_id: str | None = None
+    document_name: str | None = None
+    score: float | None = None
+    cited: bool = False
+
+
+class AskResponse(BaseModel):
+    answer: str
+    sources: List[SourceChunk]
+    has_answer: bool
+    citations: List[int]
+    conversation_id: int
+
+
+# ============================
+# Endpoint
+# ============================
+
 @router.post("", response_model=AskResponse)
 async def ask(
-  payload: AskRequest,
-  db: Session = Depends(get_db),
-  current_user: UserModel = Depends(get_current_user),
-  llm: LLMService = Depends(get_llm_service),
+    payload: AskRequest,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+    llm: LLMService = Depends(get_llm_service),
 ) -> AskResponse:
-  # Start timing for observability
-  start_time = time.time()
-  
-  tenant_id = current_user.tenant_id
-  question = payload.question
+    start_time = time.time()
 
-  if not question or question.strip() == "":
-    raise HTTPException(
-      status_code=status.HTTP_400_BAD_REQUEST,
-      detail="Pergunta inválida ou vazia.",
+    tenant_id = current_user.tenant_id
+    question = payload.question.strip()
+
+    if not question:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pergunta inválida ou vazia.",
+        )
+
+    # =====================================================
+    # 1. Conversa
+    # =====================================================
+    chat_history: list[dict] = []
+
+    if payload.conversation_id:
+        conversation = (
+            db.query(ConversationModel)
+            .filter(
+                ConversationModel.id == payload.conversation_id,
+                ConversationModel.tenant_id == tenant_id,
+                ConversationModel.user_id == current_user.id,
+            )
+            .first()
+        )
+
+        if not conversation:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found or access denied.",
+            )
+
+        messages = (
+            db.query(MessageModel)
+            .filter(MessageModel.conversation_id == conversation.id)
+            .order_by(MessageModel.created_at.asc())
+            .limit(10)
+            .all()
+        )
+
+        for msg in messages:
+            chat_history.append({"role": msg.role, "content": msg.content})
+
+    else:
+        conversation = ConversationModel(
+            tenant_id=tenant_id,
+            user_id=current_user.id,
+            title=question[:50],
+        )
+        db.add(conversation)
+        db.commit()
+        db.refresh(conversation)
+
+    # =====================================================
+    # 2. Rewrite de query
+    # =====================================================
+    search_query = question
+    rewritten_query = None
+
+    if chat_history:
+        rewriter = get_query_rewriter(llm_service=llm)
+        rewritten = rewriter.rewrite_with_context(question, chat_history)
+        if rewritten != question:
+            rewritten_query = rewritten
+            search_query = rewritten
+
+    # =====================================================
+    # 3. Tenant prompt
+    # =====================================================
+    tenant: TenantModel | None = (
+        db.query(TenantModel)
+        .filter(TenantModel.id == tenant_id)
+        .first()
     )
 
-  # 1. Manage Conversation
-  conversation = None
-  chat_history = []
-  
-  if payload.conversation_id:
-      conversation = (
-          db.query(ConversationModel)
-          .filter(
-              ConversationModel.id == payload.conversation_id,
-              ConversationModel.tenant_id == tenant_id,
-              ConversationModel.user_id == current_user.id
-          )
-          .first()
-      )
-      
-      if not conversation:
-           raise HTTPException(
-               status_code=status.HTTP_404_NOT_FOUND,
-               detail="Conversation not found or access denied."
-           )
-      
-      # Fetch recent history (last 10 messages)
-      history_records = (
-          db.query(MessageModel)
-          .filter(MessageModel.conversation_id == conversation.id)
-          .order_by(MessageModel.created_at.asc())
-          .limit(10) # Limit context window
-          .all()
-      )
-      
-      for msg in history_records:
-          chat_history.append({"role": msg.role, "content": msg.content})
+    tenant_prompt = tenant.custom_prompt if tenant and tenant.custom_prompt else None
 
-  else:
-      # Start new conversation
-      # Title can be generated later or just use first 50 chars of query
-      title = question[:50] + "..." if len(question) > 50 else question
-      conversation = ConversationModel(
-          tenant_id=tenant_id,
-          user_id=current_user.id,
-          title=title
-      )
-      db.add(conversation)
-      db.commit()
-      db.refresh(conversation)
-  
-  # 2. Query Rewriting
-  search_query = question
-  rewritten_query = None # To save in DB
-  
-  if chat_history:
-      rewriter = get_query_rewriter(llm_service=llm)
-      search_query = rewriter.rewrite_with_context(question, chat_history)
-      if search_query != question:
-          rewritten_query = search_query
-          logger.info(f"[REWRITE] Original: '{question}' -> Rewritten: '{search_query}'")
+    # =====================================================
+    # 4. Adaptive K
+    # =====================================================
+    analyzer = get_query_analyzer()
+    analysis = analyzer.analyze(search_query)
 
-  # 0) Busca o tenant para pegar o custom_prompt (se existir)
-  tenant: TenantModel | None = (
-    db.query(TenantModel)
-    .filter(TenantModel.id == tenant_id)
-    .first()
-  )
+    if payload.top_k != 5:
+        top_k = payload.top_k
+    else:
+        top_k = analysis["recommended_k"]
 
-  tenant_prompt = tenant.custom_prompt if tenant and tenant.custom_prompt else None
+    # =====================================================
+    # 5. Busca híbrida
+    # =====================================================
+    if settings.hybrid_search_enabled:
+        hybrid = get_hybrid_search_service()
+        results = hybrid.hybrid_search(
+            tenant_id=tenant_id,
+            query=search_query,
+            top_k=top_k,
+            vector_weight=settings.hybrid_vector_weight,
+            bm25_weight=settings.hybrid_bm25_weight,
+            rrf_k=settings.hybrid_rrf_k,
+        )
+    else:
+        qdrant = QdrantService()
+        results = qdrant.search(
+            tenant_id=tenant_id,
+            query_text=search_query,
+            limit=top_k,
+        )
 
-  # 0.5) Determinar K adaptativo baseado no tipo de pergunta
-  # Note: Analyze the REWRITTEN query, as it contains the full intent
-  analyzer = get_query_analyzer()
-  query_analysis = analyzer.analyze(search_query)
-  
-  # Usar K adaptativo se o usuário não especificou um valor customizado
-  user_specified_k = payload.top_k != 5  # 5 é o default
-  if user_specified_k:
-    top_k = payload.top_k
-    logger.info(f"[ADAPTIVE_K] Using user-specified K={top_k}")
-  else:
-    top_k = query_analysis["recommended_k"]
+    # =====================================================
+    # 6. Montagem de contexto (1x apenas)
+    # =====================================================
+    context_chunks: list[Dict[str, Any]] = []
+    sources: list[SourceChunk] = []
+
+    for hit in results:
+        text = hit.get("text") or hit.get("chunk_text") or ""
+        if not text:
+            continue
+
+        chunk = {
+            "text": text,
+            "document_id": str(hit.get("document_id") or ""),
+            "document_name": hit.get("document_name"),
+            "score": hit.get("score"),
+        }
+
+        context_chunks.append(chunk)
+        sources.append(
+            SourceChunk(
+                text=text,
+                document_id=chunk["document_id"] or None,
+                document_name=chunk["document_name"],
+                score=chunk["score"],
+            )
+        )
+
+    # =====================================================
+    # 7. 🔒 Limite de contexto (RAM safe)
+    # =====================================================
+    MAX_CONTEXT_CHARS = 5_000
+
+    total_chars = 0
+    filtered_context = []
+    filtered_sources = []
+
+    for chunk, source in zip(context_chunks, sources):
+        size = len(chunk["text"])
+        if total_chars + size > MAX_CONTEXT_CHARS:
+            break
+        filtered_context.append(chunk)
+        filtered_sources.append(source)
+        total_chars += size
+
+    context_chunks = filtered_context
+    sources = filtered_sources
+
     logger.info(
-      f"[ADAPTIVE_K] Auto-adjusted K from 5 to {top_k} "
-      f"(type={query_analysis['query_type']}, complexity={query_analysis['complexity_score']:.2f})"
+        "[CONTEXT] chunks=%d chars=%d",
+        len(context_chunks),
+        total_chars,
     )
 
-  # 1) Busca Híbrida (Vetorial + BM25)
-  from app.services.hybrid_search_service import get_hybrid_search_service
-  from app.core.config import settings
-  
-  hybrid_service = get_hybrid_search_service()
-  
-  use_hybrid = settings.hybrid_search_enabled
-  
-  if use_hybrid:
-      results = hybrid_service.hybrid_search(
-          tenant_id=tenant_id,
-          query=search_query, # Use search_query
-          top_k=top_k,
-          vector_weight=settings.hybrid_vector_weight,
-          bm25_weight=settings.hybrid_bm25_weight,
-          rrf_k=settings.hybrid_rrf_k
-      )
-  else:
-      qdrant = QdrantService()
-      results = qdrant.search(
-        tenant_id=tenant_id,
-        query_text=search_query, # Use search_query
-        limit=top_k,
-      )
+    # =====================================================
+    # 8. LLM (executor)
+    # =====================================================
+    try:
+        loop = asyncio.get_running_loop()
 
+        def _call_llm():
+            return llm.answer_with_context_and_citations(
+                question=question,
+                context_chunks=context_chunks,
+                system_prompt=tenant_prompt,
+                chat_history=chat_history,
+            )
 
-  # Preparar chunks com metadata para o LLM
-  from typing import Any, Dict
-  context_chunks_with_metadata: List[Dict[str, Any]] = []
-  sources: List[SourceChunk] = []
+        result = await loop.run_in_executor(None, _call_llm)
 
-  for hit in results:
-    text = (
-      hit.get("text")
-      or hit.get("chunk_text")
-      or hit.get("chunk")
-      or ""
-    )
-    if not text:
-      continue
+        answer = result["answer"]
+        citations = result["citations"]
+        has_answer = result["has_answer"]
 
-    chunk_dict = {
-      "text": text,
-      "document_name": hit.get("document_name") or hit.get("file_name") or hit.get("filename"),
-      "document_id": str(hit.get("document_id") or hit.get("doc_id") or ""),
-      "score": hit.get("score"),
-    }
-    
-    context_chunks_with_metadata.append(chunk_dict)
+    except LLMServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(e),
+        )
+    except Exception:
+        logger.exception("Erro inesperado no /ask")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro inesperado ao processar a pergunta.",
+        )
 
-    sources.append(
-      SourceChunk(
-        text=text,
-        document_id=chunk_dict["document_id"] or None,
-        document_name=chunk_dict["document_name"],
-        score=chunk_dict["score"],
-        cited=False,  # Será atualizado depois
-      )
+    # =====================================================
+    # 9. Marca citações
+    # =====================================================
+    for c in citations:
+        idx = c - 1
+        if 0 <= idx < len(sources):
+            sources[idx].cited = True
+
+    # =====================================================
+    # 10. Persistência
+    # =====================================================
+    db.add(
+        MessageModel(
+            conversation_id=conversation.id,
+            role="user",
+            content=question,
+            rewritten_query=rewritten_query,
+        )
     )
 
-  if not context_chunks_with_metadata:
-    logger.info("Nenhum chunk encontrado no Qdrant para tenant=%s", tenant_id)
+    db.add(
+        MessageModel(
+            conversation_id=conversation.id,
+            role="assistant",
+            content=answer,
+            chunks_used=[s.dict() for s in sources if s.cited],
+        )
+    )
 
-  # 2) Chama o LLM com tratamento de erro e suporte a citações
-  # Pass ORIGINAL question to LLM for tone, but retrieved chunks are from REWRITTEN
-  try:
-    loop = asyncio.get_running_loop()
+    conversation.updated_at = datetime.utcnow()
+    db.add(conversation)
 
-    def _call_llm():
-      return llm.answer_with_context_and_citations(
-        question=question, 
-        context_chunks=context_chunks_with_metadata,
-        system_prompt=tenant_prompt,
-        chat_history=chat_history 
-      )
-    result = await loop.run_in_executor(None, _call_llm)
-    
-    answer = result["answer"]
-    citations = result["citations"]
-    has_answer = result["has_answer"]
-    
-  except LLMServiceError as error:
-    raise HTTPException(
-      status_code=status.HTTP_502_BAD_GATEWAY,
-      detail=str(error),
-    ) from error
-  except Exception as error:  # noqa: BLE001
-    logger.exception("Erro inesperado ao processar /ask: %s", error)
-    raise HTTPException(
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-      detail="Erro inesperado ao processar sua pergunta.",
-    ) from error
-  
-  # Marcar chunks citados
-  for citation_num in citations:
-    idx = citation_num - 1
-    if 0 <= idx < len(sources):
-      sources[idx].cited = True
-  
-  # 3. Persist Messages
-  user_msg = MessageModel(
-      conversation_id=conversation.id,
-      role="user",
-      content=question,
-      rewritten_query=rewritten_query # Store rewrite
-  )
-  db.add(user_msg)
-  
-  assistant_msg = MessageModel(
-      conversation_id=conversation.id,
-      role="assistant",
-      content=answer,
-      chunks_used=[s.dict() for s in sources if s.cited] # Save citations
-  )
-  db.add(assistant_msg)
-  
-  # Update conversation updated_at
-  conversation.updated_at = datetime.utcnow()
-  db.add(conversation)
-  db.commit()
+    # =====================================================
+    # 11. Observabilidade
+    # =====================================================
+    response_time_ms = int((time.time() - start_time) * 1000)
 
-  # 4) Log query for observability
-  response_time_ms = int((time.time() - start_time) * 1000)
-  
-  # Calculate score statistics
-  scores = [s.score for s in sources if s.score is not None]
-  avg_score = sum(scores) / len(scores) if scores else None
-  min_score = min(scores) if scores else None
-  max_score = max(scores) if scores else None
-  
-  query_log = QueryLogModel(
-    tenant_id=tenant_id,
-    user_id=current_user.id,
-    question=question,
-    chunks_retrieved=len(results),
-    chunks_used=[s.document_id for s in sources if s.document_id],
-    avg_score=avg_score,
-    min_score=min_score,
-    max_score=max_score,
-    response_time_ms=response_time_ms,
-    conversation_id=conversation.id, # Link query log too
-  )
-  db.add(query_log)
-  db.commit()
-  
-  logger.info(
-        "[ASK] tenant=%s conversation=%s chunks=%s avg_score=%.3f time=%sms",
+    scores = [s.score for s in sources if s.score is not None]
+    avg_score = sum(scores) / len(scores) if scores else None
+
+    db.add(
+        QueryLogModel(
+            tenant_id=tenant_id,
+            user_id=current_user.id,
+            question=question,
+            chunks_retrieved=len(results),
+            avg_score=avg_score,
+            response_time_ms=response_time_ms,
+            conversation_id=conversation.id,
+        )
+    )
+
+    db.commit()
+
+    logger.info(
+        "[ASK] tenant=%s conv=%s chunks=%s avg_score=%s time=%sms",
         tenant_id,
         conversation.id,
         len(results),
-        avg_score or 0.0,
+        f"{avg_score:.3f}" if avg_score else "n/a",
         response_time_ms,
-  )
+    )
 
-  return AskResponse(
-    answer=answer,
-    sources=sources,
-    has_answer=has_answer,
-    citations=citations,
-    conversation_id=conversation.id,
-  )
+    return AskResponse(
+        answer=answer,
+        sources=sources,
+        has_answer=has_answer,
+        citations=citations,
+        conversation_id=conversation.id,
+    )
