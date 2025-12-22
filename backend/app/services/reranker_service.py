@@ -7,7 +7,6 @@ Cross-encoders are more accurate than bi-encoders for relevance scoring.
 
 import logging
 from typing import List, Dict, Any
-from sentence_transformers import CrossEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +25,8 @@ class RerankerService:
                 Default: ms-marco-MiniLM-L-6-v2 (fast, multilingual support)
         """
         logger.info(f"[RERANKER] Loading cross-encoder model: {model_name}")
+        # Lazy import to avoid heavy startup load
+        from sentence_transformers import CrossEncoder
         self.model = CrossEncoder(model_name)
         logger.info("[RERANKER] Model loaded successfully")
     

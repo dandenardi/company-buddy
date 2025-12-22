@@ -81,8 +81,9 @@ INSTRUÇÕES:
 PERGUNTA REESCRITA:"""
         
         try:
-            response = self.llm.model.generate_content(prompt)
-            rewritten = self._extract_text(response)
+            # Updated to use generate_raw from LLMService which handles the new SDK client
+            rewritten = self.llm.generate_raw(prompt)
+            rewritten = rewritten.strip()
             
             if rewritten and len(rewritten) > 5:
                 logger.info(

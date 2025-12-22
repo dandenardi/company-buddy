@@ -13,7 +13,7 @@ itsdangerous
 httpx
 requests
 qdrant-client
-google-generativeai
+google-genai
 sentence-transformers
 rank-bm25
 pypdf
