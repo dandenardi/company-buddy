@@ -18,12 +18,10 @@ class Settings(BaseSettings):
     # URLs públicas
     # =========================
     backend_public_url: AnyHttpUrl = Field(
-        default="http://localhost:8000",
         env="BACKEND_PUBLIC_URL",
     )
 
     frontend_public_url: AnyHttpUrl = Field(
-        default="http://localhost:3000",
         env="FRONTEND_BASE_URL",
     )
 
@@ -72,14 +70,13 @@ class Settings(BaseSettings):
     # Database
     # =========================
     database_url: str = Field(
-        default="postgresql+psycopg2://companybuddy:companybuddy@localhost:5432/companybuddy",
         env="DATABASE_URL",
     )
 
     # =========================
     # Auth / JWT
     # =========================
-    jwt_secret_key: SecretStr = SecretStr("change-me-in-.env")
+    jwt_secret_key: SecretStr = SecretStr(env="JWT_SECRET_KEY")
     jwt_algorithm: str = "HS256"
     access_token_expires_minutes: int = 60 * 24
 
@@ -94,7 +91,6 @@ class Settings(BaseSettings):
     google_client_secret: str = Field(default="", env="GOOGLE_CLIENT_SECRET")
 
     google_redirect_uri: AnyHttpUrl = Field(
-        default="http://localhost:8000/api/v1/auth/login/google/callback",
         env="GOOGLE_REDIRECT_URI",
     )
     google_api_key: str | None = Field(default=None, env="GOOGLE_API_KEY")
@@ -122,3 +118,4 @@ settings = Settings()
 logger = logging.getLogger(__name__)
 
 logger.info("Google redirect_uri usado: %s", settings.google_redirect_uri)
+logger.info("Frontend public URL (base): %s", settings.frontend_public_url)
